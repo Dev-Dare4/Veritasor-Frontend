@@ -400,6 +400,31 @@ describe('useDirtyForm — neighboring normal paths', () => {
 })
 
 describe('useDirtyForm — boundary inputs', () => {
+  it('does not read, write, or remove storage when persistence is disabled', async () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem')
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const removeItem = vi.spyOn(Storage.prototype, 'removeItem')
+    const { result } = renderHook(() =>
+      useDirtyForm<FormValues>({
+        storageKey: key,
+        initialValues: { name: '' },
+        persist: false,
+        autoSave: false,
+      }),
+    )
+
+    act(() => result.current.setField('name', 'secret'))
+    await act(async () => result.current.save())
+    act(() => result.current.clearDraft())
+
+    expect(getItem).not.toHaveBeenCalled()
+    expect(setItem).not.toHaveBeenCalled()
+    expect(removeItem).not.toHaveBeenCalled()
+    getItem.mockRestore()
+    setItem.mockRestore()
+    removeItem.mockRestore()
+  })
+
   it('setField with an unchanged value keeps the form clean', () => {
     const { result } = renderHook(() =>
       useDirtyForm<FormValues>({

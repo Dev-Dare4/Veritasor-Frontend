@@ -2581,11 +2581,17 @@ function SecurityPanel() {
       newPassword: "",
     },
     autoSave: false,
+    persist: false,
+    clearAfterSave: true,
     onSave: async (v) => {
       await new Promise((r) => setTimeout(r, 500));
       void v;
     },
   });
+
+  useEffect(() => {
+    localStorage.removeItem("veritasor_settings_security_draft");
+  }, []);
 
   useEffect(() => {
     registry.register("security", {
@@ -2640,6 +2646,7 @@ function SecurityPanel() {
             <input
               id="current-password"
               type="password"
+              autoComplete="current-password"
               value={pwForm.values.currentPassword}
               onChange={(e) => pwForm.setField("currentPassword", e.target.value)}
               style={{
@@ -2659,6 +2666,7 @@ function SecurityPanel() {
             <input
               id="new-password"
               type="password"
+              autoComplete="new-password"
               value={pwForm.values.newPassword}
               onChange={(e) => pwForm.setField("newPassword", e.target.value)}
               style={{

@@ -9,6 +9,8 @@ export interface UseDirtyFormOptions<T> {
   autoSave?: boolean;
   autoSaveIntervalMs?: number;
   isEqual?: (a: T, b: T) => boolean;
+  persist?: boolean;
+  clearAfterSave?: boolean;
 }
 
 export interface UseDirtyFormReturn<T> {
@@ -40,8 +42,11 @@ export function useDirtyForm<T extends Record<string, unknown>>({
   autoSave = true,
   autoSaveIntervalMs = 3000,
   isEqual = defaultIsEqual,
+  persist = true,
+  clearAfterSave = false,
 }: UseDirtyFormOptions<T>): UseDirtyFormReturn<T> {
   const [values, setValues] = useState<T>(() => {
+    if (!persist) return initialValues;
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) return { ...initialValues, ...JSON.parse(raw) };
@@ -54,6 +59,7 @@ export function useDirtyForm<T extends Record<string, unknown>>({
   const [isDirty, setIsDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(() => {
+    if (!persist) return null;
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) return new Date();
@@ -89,13 +95,14 @@ export function useDirtyForm<T extends Record<string, unknown>>({
 
   const persistDraft = useCallback(
     (current: T) => {
+      if (!persist) return;
       try {
         localStorage.setItem(storageKey, JSON.stringify(current));
       } catch {
         // storage full or unavailable
       }
     },
-    [storageKey],
+    [persist, storageKey],
   );
 
   const save = useCallback(async () => {
@@ -104,8 +111,10 @@ export function useDirtyForm<T extends Record<string, unknown>>({
       if (onSave) {
         await onSave(values);
       }
-      persistDraft(values);
-      initialRef.current = values;
+      const savedValues = clearAfterSave ? initialRef.current : values;
+      persistDraft(savedValues);
+      initialRef.current = savedValues;
+      if (clearAfterSave) setValues(savedValues);
       setIsDirty(false);
       setSaveStatus("saved");
       setLastSavedAt(new Date());
@@ -115,7 +124,7 @@ export function useDirtyForm<T extends Record<string, unknown>>({
       setSaveStatus("dirty");
       throw new Error("Save failed");
     }
-  }, [values, onSave, persistDraft]);
+  }, [values, onSave, persistDraft, clearAfterSave]);
 
   const reset = useCallback(() => {
     setValues(initialRef.current);
@@ -125,17 +134,17 @@ export function useDirtyForm<T extends Record<string, unknown>>({
   }, []);
 
   const clearDraft = useCallback(() => {
-    localStorage.removeItem(storageKey);
+    if (persist) localStorage.removeItem(storageKey);
     setValues(initialRef.current);
     setIsDirty(false);
     setSaveStatus("idle");
     setLastSavedAt(null);
     setConfirmLeave(false);
-  }, [storageKey]);
+  }, [persist, storageKey]);
 
   useEffect(() => {
-    persistDraft(values);
-  }, [values, persistDraft]);
+    if (persist) persistDraft(values);
+  }, [values, persist, persistDraft]);
 
   useEffect(() => {
     if (isDirty) setSaveStatus("dirty");

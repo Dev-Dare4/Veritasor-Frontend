@@ -11,8 +11,8 @@
  */
 
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
 import { LocaleProvider } from '../i18n/provider'
 import Settings from '../pages/Settings'
 
@@ -464,5 +464,47 @@ describe('Security — MFA recovery codes', () => {
     fireEvent.click(screen.getByRole('button', { name: /continue/i }))
     fireEvent.click(screen.getByRole('button', { name: /disable/i }))
     expect(screen.getByRole('button', { name: /set up two-factor authentication/i })).toBeInTheDocument()
+  })
+})
+
+describe('Security — password form storage', () => {
+  it('removes the legacy password draft when the Security panel mounts', () => {
+    window.localStorage.setItem(
+      'veritasor_settings_security_draft',
+      JSON.stringify({ currentPassword: 'legacy-secret', newPassword: 'legacy-secret' }),
+    )
+
+    renderSettings('#security')
+
+    expect(window.localStorage.getItem('veritasor_settings_security_draft')).toBeNull()
+  })
+
+  it('does not write password values to localStorage while typing', () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    renderSettings('#security')
+
+    fireEvent.change(screen.getByLabelText(/current password/i), {
+      target: { value: 'current-secret' },
+    })
+    fireEvent.change(screen.getByLabelText(/new password/i), {
+      target: { value: 'new-secret' },
+    })
+
+    expect(setItem).not.toHaveBeenCalled()
+    setItem.mockRestore()
+  })
+
+  it('clears both password fields after a successful update', async () => {
+    renderSettings('#security')
+    const currentPassword = screen.getByLabelText(/current password/i)
+    const newPassword = screen.getByLabelText(/new password/i)
+    fireEvent.change(currentPassword, { target: { value: 'current-secret' } })
+    fireEvent.change(newPassword, { target: { value: 'new-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: /update password/i }))
+
+    await waitFor(() => {
+      expect(currentPassword).toHaveValue('')
+      expect(newPassword).toHaveValue('')
+    })
   })
 })
