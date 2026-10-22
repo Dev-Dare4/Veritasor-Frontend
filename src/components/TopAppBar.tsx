@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useIntl } from "react-intl";
+import { useNavigate } from "react-router-dom";
 import LocalePicker from "./LocalePicker/LocalePicker";
 import { useEnvironment } from "../context/EnvironmentContext";
 
@@ -100,9 +101,7 @@ export default function TopAppBar({
   const [createWsSubmitting, setCreateWsSubmitting] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const intl = useIntl();
-  const { environment, setEnvironment } = useEnvironment();
-  const [confirmMainnetOpen, setConfirmMainnetOpen] = useState(false);
-  const confirmMainnetTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const navigate = useNavigate();
 
   const currentWorkspace = useMemo(
     () => workspaces.find((ws) => ws.id === workspaceId) || workspaces[0] || DEFAULT_WORKSPACES[0],
@@ -120,6 +119,7 @@ export default function TopAppBar({
   const workspaceMenuRef = useRef<HTMLUListElement>(null);
   const workspaceSearchRef = useRef<HTMLInputElement>(null);
   const accountBtnRef = useRef<HTMLButtonElement>(null);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLUListElement>(null);
   const createWsTriggerRef = useRef<HTMLElement | null>(null);
   const createWsModalRef = useRef<HTMLDivElement>(null);
@@ -158,7 +158,7 @@ export default function TopAppBar({
       if (
         accountOpen &&
         !accountBtnRef.current!.contains(target) &&
-        !accountMenuRef.current!.contains(target)
+        !accountDropdownRef.current!.contains(target)
       ) {
         setAccountOpen(false);
       }
@@ -335,6 +335,12 @@ export default function TopAppBar({
 
   function closeAccountMenu() {
     setAccountOpen(false);
+    accountBtnRef.current?.focus();
+  }
+
+  function handleAccountNavigate(path: string) {
+    closeAccountMenu();
+    navigate(path);
   }
 
   const hasDraftContent = useMemo(
@@ -920,93 +926,127 @@ export default function TopAppBar({
             </button>
 
             {accountOpen && (
-              <ul
-                ref={accountMenuRef}
-                role="menu"
-                aria-label="Account options"
+              <div
+                ref={accountDropdownRef}
                 className="disclosure-menu disclosure-menu-right"
-                onKeyDown={handleAccountMenuKeyDown}
               >
-                <li
-                  role="none"
-                  aria-hidden="true"
-                  style={{
-                    padding: "0.75rem 0.9rem",
-                    borderBottom: "1px solid var(--border)",
-                    marginBottom: "0.25rem",
-                  }}
+                <ul
+                  ref={accountMenuRef}
+                  role="menu"
+                  aria-label="Account options"
+                  style={{ listStyle: "none", margin: 0, padding: 0 }}
+                  onKeyDown={handleAccountMenuKeyDown}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "2.5rem",
-                        height: "2.5rem",
-                        borderRadius: "50%",
-                        background: userAvatar
-                          ? `url(${userAvatar}) center/cover`
-                          : "linear-gradient(135deg, var(--primary), var(--accent))",
-                        color: "white",
-                        fontSize: "0.9rem",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {userAvatar ? "" : userInitials}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
+                  <li
+                    role="none"
+                    aria-hidden="true"
+                    style={{
+                      padding: "0.75rem 0.9rem",
+                      borderBottom: "1px solid var(--border)",
+                      marginBottom: "0.25rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <span
                         style={{
-                          fontWeight: 600,
-                          fontSize: "0.95rem",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "2.5rem",
+                          height: "2.5rem",
+                          borderRadius: "50%",
+                          background: userAvatar
+                            ? `url(${userAvatar}) center/cover`
+                            : "linear-gradient(135deg, var(--primary), var(--accent))",
+                          color: "white",
+                          fontSize: "0.9rem",
+                          fontWeight: 700,
                         }}
                       >
-                        {userName}
-                      </div>
-                      {userEmail && (
+                        {userAvatar ? "" : userInitials}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <div
                           style={{
-                            fontSize: "0.8rem",
-                            color: "var(--muted)",
+                            fontWeight: 600,
+                            fontSize: "0.95rem",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {userEmail}
+                          {userName}
                         </div>
-                      )}
+                        {userEmail && (
+                          <div
+                            style={{
+                              fontSize: "0.8rem",
+                              color: "var(--muted)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {userEmail}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </li>
-                <li
-                  role="menuitem"
-                  tabIndex={0}
-                  className="disclosure-item"
-                  onClick={closeAccountMenu}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      closeAccountMenu();
-                    }
-                  }}
-                >
-                  {intl.formatMessage({ id: "settings.title" })}
-                </li>
-                <li
-                  role="menuitem"
-                  tabIndex={0}
-                  className="disclosure-item"
-                  onClick={closeAccountMenu}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      closeAccountMenu();
-                    }
+                  </li>
+                  <li
+                    role="menuitem"
+                    tabIndex={0}
+                    className="disclosure-item"
+                    onClick={() => handleAccountNavigate("/settings")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleAccountNavigate("/settings");
+                      }
+                    }}
+                  >
+                    {intl.formatMessage({ id: "settings.title" })}
+                  </li>
+                  <li
+                    role="menuitem"
+                    tabIndex={0}
+                    className="disclosure-item"
+                    onClick={() => handleAccountNavigate("/api-keys")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleAccountNavigate("/api-keys");
+                      }
+                    }}
+                  >
+                    API keys
+                  </li>
+                  <li
+                    role="separator"
+                    aria-hidden="true"
+                    className="disclosure-separator"
+                  />
+                  <li
+                    role="menuitem"
+                    tabIndex={0}
+                    className="disclosure-item disclosure-item-danger"
+                    onClick={closeAccountMenu}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        closeAccountMenu();
+                      }
+                    }}
+                  >
+                    {intl.formatMessage({ id: "nav.signOut" })}
+                  </li>
+                </ul>
+                <section
+                  aria-label={intl.formatMessage({ id: "settings.locale.label" })}
+                  style={{
+                    padding: "0.5rem 0.75rem",
+                    borderTop: "1px solid var(--border)",
+                    marginTop: "0.25rem",
                   }}
                 >
                   <div className="flex flex-col gap-1">
@@ -1015,41 +1055,8 @@ export default function TopAppBar({
                     </span>
                     <LocalePicker compact />
                   </div>
-                </li>
-                <li
-                  role="menuitem"
-                  tabIndex={0}
-                  className="disclosure-item"
-                  onClick={closeAccountMenu}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      closeAccountMenu();
-                    }
-                  }}
-                >
-                  API keys
-                </li>
-                <li
-                  role="separator"
-                  aria-hidden="true"
-                  className="disclosure-separator"
-                />
-                <li
-                  role="menuitem"
-                  tabIndex={0}
-                  className="disclosure-item disclosure-item-danger"
-                  onClick={closeAccountMenu}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      closeAccountMenu();
-                    }
-                  }}
-                >
-                  {intl.formatMessage({ id: "nav.signOut" })}
-                </li>
-              </ul>
+                </section>
+              </div>
             )}
           </div>
         </div>

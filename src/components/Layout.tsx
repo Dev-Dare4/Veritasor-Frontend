@@ -174,9 +174,47 @@ function LayoutInner() {
       <div className="app-body">
         <aside id="app-sidebar" className={`app-sidebar${sidebarOpen ? " app-sidebar-open" : ""}`} aria-label="Site navigation">
           <nav aria-label="Main navigation">
-            <NavLink to="/dashboard" end className={({ isActive }) => `sidebar-link${isActive ? " sidebar-link-active" : ""}`}>Dashboard</NavLink>
-            <NavLink to="/attestations" className={({ isActive }) => `sidebar-link${isActive ? " sidebar-link-active" : ""}`}>Attestations</NavLink>
-            <NavLink to="/sources" className={({ isActive }) => `sidebar-link${isActive ? " sidebar-link-active" : ""}`}>Revenue Sources</NavLink>
+            <NavLink
+              to="/dashboard"
+              end
+              className={({ isActive }) =>
+                `sidebar-link${isActive ? " sidebar-link-active" : ""}`
+              }
+            >
+              Dashboard
+            </NavLink>
+            <NavLink
+              to="/attestations"
+              className={({ isActive }) =>
+                `sidebar-link${isActive ? " sidebar-link-active" : ""}`
+              }
+            >
+              Attestations
+            </NavLink>
+            <NavLink
+              to="/sources"
+              className={({ isActive }) =>
+                `sidebar-link${isActive ? " sidebar-link-active" : ""}`
+              }
+            >
+              Revenue Sources
+            </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `sidebar-link${isActive ? " sidebar-link-active" : ""}`
+              }
+            >
+              Settings
+            </NavLink>
+            <NavLink
+              to="/api-keys"
+              className={({ isActive }) =>
+                `sidebar-link${isActive ? " sidebar-link-active" : ""}`
+              }
+            >
+              API keys
+            </NavLink>
           </nav>
           <div className="sidebar-footer">
             <button type="button" className="sidebar-cookie-btn" onClick={() => navigate('/consent-preferences')} aria-label="Open cookie settings">Cookie settings</button>
