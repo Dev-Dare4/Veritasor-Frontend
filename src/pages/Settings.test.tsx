@@ -10,20 +10,30 @@
  * Issue #251: Security tab session management.
  */
 
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import { LocaleProvider } from '../i18n/provider'
 import Settings from '../pages/Settings'
 
 function renderSettings(hash = '') {
+  const router = createMemoryRouter([
+    {
+      path: '/settings',
+      element: (
+        <>
+          <Link to="/dashboard">Dashboard navigation</Link>
+          <Settings />
+        </>
+      ),
+    },
+    { path: '/dashboard', element: <h1>Dashboard route</h1> },
+  ], {
+    initialEntries: [`/settings${hash}`],
+  })
   return render(
     <LocaleProvider>
-      <MemoryRouter initialEntries={[`/settings${hash}`]}>
-        <Routes>
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
     </LocaleProvider>,
   )
 }
@@ -138,6 +148,46 @@ describe('Settings — click navigation', () => {
     fireEvent.click(screen.getByRole('tab', { name: /notifications/i }))
     expect(screen.getByRole('tab', { name: /notifications/i })).toHaveAttribute('aria-selected', 'true')
     expect(document.getElementById('panel-notifications')).not.toHaveAttribute('hidden')
+  })
+
+  describe('Settings — unsaved changes navigation guard', () => {
+    it('keeps the active tab and edits when cancelling a tab switch', () => {
+      renderSettings()
+      const nameInput = screen.getByLabelText(/display name/i)
+      fireEvent.change(nameInput, { target: { value: 'Updated name' } })
+      fireEvent.click(screen.getByRole('tab', { name: /notifications/i }))
+
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /^stay$/i }))
+
+      expect(screen.getByRole('tab', { name: /profile/i })).toHaveAttribute('aria-selected', 'true')
+      expect(nameInput).toHaveValue('Updated name')
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
+
+    it('discards edits and navigates when leaving through a route link', async () => {
+      renderSettings()
+      fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'Discard this name' } })
+      fireEvent.click(screen.getByRole('link', { name: /dashboard navigation/i }))
+
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /discard & leave/i }))
+
+      expect(await screen.findByRole('heading', { name: /dashboard route/i })).toBeInTheDocument()
+    })
+
+    it('saves all edits and switches tabs when confirmed', async () => {
+      renderSettings()
+      const nameInput = screen.getByLabelText(/display name/i)
+      fireEvent.change(nameInput, { target: { value: 'Saved name' } })
+      fireEvent.click(screen.getByRole('tab', { name: /notifications/i }))
+      fireEvent.click(screen.getByRole('button', { name: /save & leave/i }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: /notifications/i })).toHaveAttribute('aria-selected', 'true')
+      })
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
   })
 
   it('clicking a new tab deactivates the previous one', () => {
