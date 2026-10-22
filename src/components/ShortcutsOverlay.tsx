@@ -14,50 +14,14 @@
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  SHORTCUT_CATEGORIES,
+  type Shortcut,
+  type ShortcutCategory,
+} from '../constants/shortcuts'
 
-export interface Shortcut {
-  keys: string[]
-  label: string
-}
-
-export interface ShortcutCategory {
-  name: string
-  shortcuts: Shortcut[]
-}
-
-export const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
-  {
-    name: 'Global',
-    shortcuts: [
-      { keys: ['Shift', '?'], label: 'Open keyboard shortcuts' },
-      { keys: ['Ctrl', 'K'], label: 'Open command palette' },
-      { keys: ['Ctrl', 'K', 'W'], label: 'Quick-jump workspaces (opens switcher in search mode)' },
-      { keys: ['Esc'], label: 'Close dialog / overlay' },
-    ],
-  },
-  {
-    name: 'Navigation',
-    shortcuts: [
-      { keys: ['G', 'D'], label: 'Go to Dashboard' },
-      { keys: ['G', 'A'], label: 'Go to Attestations' },
-      { keys: ['G', 'S'], label: 'Go to Revenue Sources' },
-    ],
-  },
-  {
-    name: 'Editing',
-    shortcuts: [
-      { keys: ['T', 'T'], label: 'Toggle theme' },
-      { keys: ['C', 'S'], label: 'Connect revenue source' },
-    ],
-  },
-  {
-    name: 'Attestations',
-    shortcuts: [
-      { keys: ['N', 'A'], label: 'New attestation' },
-      { keys: ['Enter'], label: 'Confirm attestation' },
-    ],
-  },
-]
+export type { Shortcut, ShortcutCategory }
+export { SHORTCUT_CATEGORIES }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -210,8 +174,8 @@ export default function ShortcutsOverlay({ open, onClose }: Props) {
                     <li key={shortcut.label} className="kso-row">
                       <span className="kso-label">{shortcut.label}</span>
                       <span className="kso-keys" aria-label={shortcut.keys.join(' then ')}>
-                        {shortcut.keys.map((key) => (
-                          <kbd key={key} className="kso-kbd">
+                        {shortcut.keys.map((key, keyIndex) => (
+                          <kbd key={`${key}-${keyIndex}`} className="kso-kbd">
                             {key}
                           </kbd>
                         ))}

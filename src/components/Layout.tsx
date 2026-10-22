@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from "react";
-import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import TopAppBar from "./TopAppBar";
 import BottomTabBar from "./BottomTabBar";
 import { ToastProvider } from "./ToastContext";
@@ -8,6 +8,7 @@ import { BillingProvider, useBilling } from "./BillingContext";
 import ToastContainer from "./ToastContainer";
 import ShortcutsOverlay from "./ShortcutsOverlay";
 import ContextualHelpSearch from "./ContextualHelpSearch";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 function BillingBannerSlot() {
   const { failedPayment, dismissFailedPayment } = useBilling();
@@ -56,68 +57,31 @@ function BillingBannerSlot() {
 
 function LayoutInner() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [cmdOpen, setCmdOpen] = useState(false);
   const [helpSearchOpen, setHelpSearchOpen] = useState(false);
   const [openWsSwitcherInSearchMode, setOpenWsSwitcherInSearchMode] = useState(false);
 
-  /**
-   * Sequential key chord tracker for multi-key shortcuts.
-   * Tracks the last key pressed so we can detect Ctrl+K → W.
-   */
-  const lastKeyRef = useRef<{ key: string; ctrlOrMeta: boolean } | null>(null);
-  const chordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Global keyboard shortcut handler
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement).tagName;
-      const isEditable =
-        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-
-      // Shift+? — keyboard shortcuts overlay (not in editable fields)
-      if (!isEditable && e.shiftKey && e.key === "?") {
-        e.preventDefault();
-        setShortcutsOpen((o) => !o);
-        return;
-      }
-
-      // Ctrl/Cmd+K — placeholder for command palette (not in editable fields)
-      if ((e.ctrlKey || e.metaKey) && e.key === "k" && !isEditable) {
-        e.preventDefault();
-
-        // Record this chord step so we can detect Ctrl+K → W next
-        if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-        lastKeyRef.current = { key: "k", ctrlOrMeta: true };
-        chordTimerRef.current = setTimeout(() => {
-          lastKeyRef.current = null;
-        }, 1500);
-
-        return;
-      }
-
-      // W — if the previous chord was Ctrl/Cmd+K, open workspace switcher in search mode
-      if (
-        !isEditable &&
-        e.key === "w" &&
-        lastKeyRef.current?.key === "k" &&
-        lastKeyRef.current?.ctrlOrMeta
-      ) {
-        e.preventDefault();
-        if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-        lastKeyRef.current = null;
-        return;
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-    };
-  }, []);
+  // Centralized keyboard shortcuts
+  useKeyboardShortcuts({
+    onNavigateDashboard: () => navigate('/dashboard'),
+    onNavigateAttestations: () => navigate('/attestations'),
+    onNavigateSources: () => navigate('/sources'),
+    onConnectRevenueSource: () => navigate('/connect-source/provider'),
+    onOpenHelpSearch: () => setHelpSearchOpen(true),
+    onToggleShortcuts: () => setShortcutsOpen((o) => !o),
+    onOpenCommandPalette: () => {
+      // Placeholder for command palette
+    },
+    onWorkspaceJump: () => {
+      setOpenWsSwitcherInSearchMode(true);
+    },
+    onCloseOverlay: () => {
+      setShortcutsOpen(false);
+      setHelpSearchOpen(false);
+      setSidebarOpen(false);
+    },
+  });
 
   function toggleSidebar() {
     setSidebarOpen((o) => !o);
@@ -130,7 +94,14 @@ function LayoutInner() {
   return (
     <div className="vt-shell">
       <OfflineBanner />
-      <TopAppBar onSidebarToggle={toggleSidebar} sidebarOpen={sidebarOpen} />
+      <TopAppBar
+        onSidebarToggle={toggleSidebar}
+        sidebarOpen={sidebarOpen}
+        openWorkspaceSwitcherInSearchMode={openWsSwitcherInSearchMode}
+        onWorkspaceSwitcherOpenChange={(open) => {
+          if (!open) setOpenWsSwitcherInSearchMode(false);
+        }}
+      />
 
       <div className="app-body">
         <aside

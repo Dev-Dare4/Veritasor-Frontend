@@ -43,8 +43,9 @@ describe('ShortcutsOverlay', () => {
     // Spot-check a known shortcut from each category
     expect(screen.getByText('Open keyboard shortcuts')).toBeInTheDocument()
     expect(screen.getByText('Go to Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('Toggle theme')).toBeInTheDocument()
-    expect(screen.getByText('New attestation')).toBeInTheDocument()
+    expect(screen.getByText('Connect revenue source')).toBeInTheDocument()
+    expect(screen.queryByText('Toggle theme')).not.toBeInTheDocument()
+    expect(screen.queryByText('New attestation')).not.toBeInTheDocument()
   })
 
   it('filters shortcuts by label', () => {
@@ -52,7 +53,7 @@ describe('ShortcutsOverlay', () => {
     const input = screen.getByRole('searchbox')
     fireEvent.change(input, { target: { value: 'dashboard' } })
     expect(screen.getByText('Go to Dashboard')).toBeInTheDocument()
-    expect(screen.queryByText('Toggle theme')).not.toBeInTheDocument()
+    expect(screen.queryByText('Connect revenue source')).not.toBeInTheDocument()
   })
 
   it('filters shortcuts by category name', () => {
