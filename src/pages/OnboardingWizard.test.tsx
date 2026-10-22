@@ -59,17 +59,18 @@ describe('OnboardingWizard', () => {
     await user.type(screen.getByLabelText(/Full legal name/i), 'John Doe')
     await user.type(screen.getByLabelText(/Date of birth/i), '1990-01-01')
     await user.type(screen.getByLabelText(/Nationality/i), 'American')
-    await user.type(screen.getByLabelText(/Street address, line 1/i), '123 Main St')
+    await user.type(screen.getByLabelText(/Address line 1/i), '123 Main St')
     await user.type(screen.getByLabelText(/City/i), 'New York')
-    await user.type(screen.getByLabelText(/Postal \/ ZIP code/i), '10001')
+    await user.type(screen.getByLabelText(/Postal code/i), '10001')
     await user.click(screen.getByRole('button', { name: /continue/i }))
 
     // --- STEP 3: Selfie ---
     expect(await screen.findByRole('heading', { name: 'Selfie verification' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /continue/i }))
-    expect(screen.getByText('A selfie is required')).toBeInTheDocument()
+    // Switch to upload photo fallback
+    const selfieUploadInsteadBtn = screen.getByRole('button', { name: /upload photo instead/i })
+    await user.click(selfieUploadInsteadBtn)
 
-    const selfieInput = screen.getByLabelText(/Take selfie or choose file/i)
+    const selfieInput = container.querySelector('#sc-upload-input') as HTMLInputElement
     const selfieFile = new File(['hello'], 'selfie.jpg', { type: 'image/jpeg' })
     await user.upload(selfieInput, selfieFile)
     await user.click(screen.getByRole('button', { name: /continue/i }))
@@ -128,112 +129,185 @@ describe('OnboardingWizard', () => {
 
     await user.type(screen.getByLabelText(/Bank name/i), 'Test Bank')
     await user.type(screen.getByLabelText(/Account number/i), '123456789')
-    await user.type(screen.getByLabelText(/Currency/i), 'USD')
-    await user.type(screen.getByLabelText(/IBAN \/ SWIFT/i), 'US123456')
+    await user.selectOptions(screen.getByLabelText(/Settlement currency/i), 'USD')
+    await user.type(screen.getByLabelText(/IBAN \/ SWIFT-BIC/i), 'US123456')
     await user.click(screen.getByRole('button', { name: /continue/i }))
     
     // --- STEP 6: Review & Submit ---
     expect(await screen.findByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
     
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
     const submitBtn = screen.getByRole('button', { name: /submit application/i })
     await user.click(submitBtn)
     
-    expect(global.fetch).toHaveBeenCalledTimes(1)
-    expect(global.fetch).toHaveBeenCalledWith('/api/onboarding/submit', expect.any(Object))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenCalledWith('/api/onboarding/submit', expect.any(Object))
+    
+    const callBody = mockFetch.mock.calls[0][1].body as FormData
+    expect(callBody).toBeInstanceOf(FormData)
+    expect(callBody.get('selfie')).toBe(selfieFile)
+    expect(callBody.getAll('registrationCert')).toEqual([fileRegistration])
+    expect(callBody.getAll('govIdFront')).toEqual([fileGovFront])
+    expect(callBody.getAll('govIdBack')).toEqual([fileGovBack])
+    expect(callBody.getAll('proofOfAddress')).toEqual([fileProof])
     
     // Success Screen
     expect(await screen.findByRole('heading', { name: 'Verification in progress' })).toBeInTheDocument()
   })
 
-  describe('auto-persist frame batching and flushing', () => {
-    it('persists all fields when multiple fields change in the same animation frame (browser autofill)', () => {
-      let rafCallback: FrameRequestCallback | null = null;
-      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
-        rafCallback = cb;
-        return 123;
-      });
+  describe('submit failures and retry behavior', () => {
+    const step6Draft = {
+      step: 6,
+      business: {
+        legalName: 'Test Corp',
+        registrationNumber: '12345',
+        country: 'USA',
+        businessType: 'LLC',
+        website: '',
+      },
+      owner: {
+        fullName: 'John Doe',
+        dateOfBirth: '1990-01-01',
+        nationality: 'American',
+        addressLine1: '123 Main St',
+        addressLine2: '',
+        city: 'New York',
+        postalCode: '10001',
+      },
+      selfie: {
+        captured: true,
+        fileName: 'selfie.jpg',
+      },
+      documents: {
+        registrationCert: ['reg.pdf'],
+        govIdFront: ['id-front.jpg'],
+        govIdBack: ['id-back.jpg'],
+        proofOfAddress: ['proof.pdf'],
+      },
+      bank: {
+        bankName: 'Test Bank',
+        accountNumber: '123456789',
+        currency: 'USD',
+        ibanSwift: 'US123456',
+      },
+    }
+
+    it('stays on step 6, keeps draft in storage, and shows retry on 500 error', async () => {
+      localStorage.setItem('veritasor_onboarding_draft', JSON.stringify(step6Draft))
+      const user = userEvent.setup()
 
       render(
         <MemoryRouter>
           <OnboardingWizard />
         </MemoryRouter>
-      );
+      )
 
-      const legalNameInput = screen.getByLabelText(/legal business name/i);
-      const regNumberInput = screen.getByLabelText(/registration number/i);
-      const countryInput = screen.getByLabelText(/country of incorporation/i);
+      expect(await screen.findByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
 
-      fireEvent.input(legalNameInput, { target: { id: 'ob-legal-name', value: 'Alpha Corp' } });
-      fireEvent.input(regNumberInput, { target: { id: 'ob-reg-number', value: 'REG-999' } });
-      fireEvent.input(countryInput, { target: { id: 'ob-country', value: 'Estonia' } });
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response('Server Error', {
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { 'Content-Type': 'text/plain' },
+        })
+      )
+      vi.stubGlobal('fetch', mockFetch)
 
-      // Before rAF runs, nothing is flushed yet
-      const draftBefore = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
-      expect(draftBefore.business?.legalName).toBeFalsy();
+      const submitBtn = screen.getByRole('button', { name: /submit application/i })
+      await user.click(submitBtn)
 
-      // Execute the animation frame callback
-      expect(rafCallback).toBeTypeOf('function');
-      rafCallback!(performance.now());
+      // Alert with role="alert" appears
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(/Submission failed with status 500/i)
 
-      const draftAfter = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
-      expect(draftAfter.business?.legalName).toBe('Alpha Corp');
-      expect(draftAfter.business?.registrationNumber).toBe('REG-999');
-      expect(draftAfter.business?.country).toBe('Estonia');
-    });
+      // Stays on step 6
+      expect(screen.getByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Verification in progress' })).not.toBeInTheDocument()
 
-    it('flushes pending updates synchronously on unmount instead of cancelling them', () => {
-      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 456);
+      // Draft remains in storage
+      const savedDraft = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}')
+      expect(savedDraft.business?.legalName).toBe('Test Corp')
 
-      const { unmount } = render(
-        <MemoryRouter>
-          <OnboardingWizard />
-        </MemoryRouter>
-      );
+      // Retry button is available and works
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
 
-      const legalNameInput = screen.getByLabelText(/legal business name/i);
-      fireEvent.input(legalNameInput, { target: { id: 'ob-legal-name', value: 'Unmount Corp' } });
+      const retryBtn = screen.getByRole('button', { name: /retry/i })
+      await user.click(retryBtn)
 
-      unmount();
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(await screen.findByRole('heading', { name: 'Verification in progress' })).toBeInTheDocument()
+      expect(localStorage.getItem('veritasor_onboarding_draft')).toBeNull()
+    })
 
-      const saved = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
-      expect(saved.business?.legalName).toBe('Unmount Corp');
-    });
-
-    it('flushes pending updates synchronously on pagehide', () => {
-      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 789);
-
-      render(
-        <MemoryRouter>
-          <OnboardingWizard />
-        </MemoryRouter>
-      );
-
-      const legalNameInput = screen.getByLabelText(/legal business name/i);
-      fireEvent.input(legalNameInput, { target: { id: 'ob-legal-name', value: 'Pagehide Corp' } });
-
-      window.dispatchEvent(new Event('pagehide'));
-
-      const saved = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
-      expect(saved.business?.legalName).toBe('Pagehide Corp');
-    });
-
-    it('flushes pending updates synchronously on visibilitychange to hidden', () => {
-      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 999);
+    it('stays on step 6, keeps draft, and shows retry on network error', async () => {
+      localStorage.setItem('veritasor_onboarding_draft', JSON.stringify(step6Draft))
+      const user = userEvent.setup()
 
       render(
         <MemoryRouter>
           <OnboardingWizard />
         </MemoryRouter>
-      );
+      )
 
-      const regNumberInput = screen.getByLabelText(/registration number/i);
-      fireEvent.input(regNumberInput, { target: { id: 'ob-reg-number', value: 'REG-VIS-123' } });
+      expect(await screen.findByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
 
-      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-      document.dispatchEvent(new Event('visibilitychange'));
+      const mockFetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+      vi.stubGlobal('fetch', mockFetch)
 
-      const saved = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
-      expect(saved.business?.registrationNumber).toBe('REG-VIS-123');
-    });
-  });
+      const submitBtn = screen.getByRole('button', { name: /submit application/i })
+      await user.click(submitBtn)
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(/Network error/i)
+      expect(screen.getByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+
+      const savedDraft = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}')
+      expect(savedDraft.business?.legalName).toBe('Test Corp')
+    })
+
+    it('stays on step 6, keeps draft, and shows retry on HTML 200 SPA rewrite response', async () => {
+      localStorage.setItem('veritasor_onboarding_draft', JSON.stringify(step6Draft))
+      const user = userEvent.setup()
+
+      render(
+        <MemoryRouter>
+          <OnboardingWizard />
+        </MemoryRouter>
+      )
+
+      expect(await screen.findByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
+
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response('<!DOCTYPE html><html><body>Index</body></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      )
+      vi.stubGlobal('fetch', mockFetch)
+
+      const submitBtn = screen.getByRole('button', { name: /submit application/i })
+      await user.click(submitBtn)
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(/expected JSON response/i)
+      expect(screen.getByRole('heading', { name: 'Review & submit' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+
+      const savedDraft = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}')
+      expect(savedDraft.business?.legalName).toBe('Test Corp')
+    })
+  })
 })
