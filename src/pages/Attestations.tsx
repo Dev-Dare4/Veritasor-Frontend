@@ -2,9 +2,7 @@ import { useState } from 'react'
 import TriggerAttestationFAB from '../components/TriggerAttestationFAB'
 import AttestationConfirmModal, { type FeeInfo } from '../components/AttestationConfirmModal'
 import { AttestationCalendar } from '../components/scheduling/AttestationCalendar'
-import { useToast } from '../components/ToastContext'
-import { useAttestations, type Attestation } from '../state/attestations'
-import { DEFAULT_TRIGGER_DETAILS } from '../state/attestationMocks'
+import { getAttestationChartGeometry, getAttestationChartLabelIndices } from '../utils/attestationChartData'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -160,14 +158,35 @@ function buildTrendBuckets(attestations: AttestationListItem[]): TrendBucket[] {
     buckets.set(key, counts)
   }
 
-  return Array.from(buckets.entries())
+  const datedBuckets = Array.from(buckets.entries())
+    .filter(([dateKey]) => dateKey !== 'Unknown')
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([dateKey, counts]) => ({
-      dateKey,
-      label: formatTrendLabel(dateKey),
-      counts,
-      total: counts.verified + counts.pending + counts.failed,
-    }))
+  const expandedBuckets: Array<[string, Record<AttestationStatus, number>]> = []
+
+  if (datedBuckets.length > 0) {
+    const firstDate = new Date(`${datedBuckets[0][0]}T00:00:00Z`)
+    const lastDate = new Date(`${datedBuckets[datedBuckets.length - 1][0]}T00:00:00Z`)
+    const countsByDate = new Map(datedBuckets)
+    for (const date = new Date(firstDate); date <= lastDate; date.setUTCDate(date.getUTCDate() + 1)) {
+      const dateKey = date.toISOString().slice(0, 10)
+      expandedBuckets.push([
+        dateKey,
+        countsByDate.get(dateKey) ?? { verified: 0, pending: 0, failed: 0 },
+      ])
+    }
+  }
+
+  const unknownCounts = buckets.get('Unknown')
+  if (unknownCounts) {
+    expandedBuckets.unshift(['Unknown', unknownCounts])
+  }
+
+  return expandedBuckets.map(([dateKey, counts]) => ({
+    dateKey,
+    label: formatTrendLabel(dateKey),
+    counts,
+    total: counts.verified + counts.pending + counts.failed,
+  }))
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────
@@ -287,9 +306,11 @@ function AttestationTrendChart({ attestations }: { attestations: AttestationList
   const maxCount = Math.max(1, ...buckets.map((bucket) => bucket.total));
   const chartWidth = 640;
   const chartHeight = 160;
-  const barWidth = Math.max(12, Math.min(48, (chartWidth - 48) / Math.max(buckets.length, 1) - 12));
-  const availableWidth = chartWidth - 48;
-  const step = buckets.length > 1 ? availableWidth / (buckets.length - 1) : 0;
+  const { barWidth, positions } = getAttestationChartGeometry(buckets.length, chartWidth);
+  const centers = positions.map((position) => position + barWidth / 2);
+  const labelIndices = new Set(
+    getAttestationChartLabelIndices(buckets.map((bucket) => bucket.label), centers),
+  );
   const selected = focusedIndex === null ? null : buckets[focusedIndex];
 
   function focusBar(index: number) {
@@ -341,7 +362,7 @@ function AttestationTrendChart({ attestations }: { attestations: AttestationList
           <div role="status" style={{ minHeight: '1.5rem', fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '0.5rem' }}>
             {selected
               ? `${selected.label}: ${selected.total} attestations, ${selected.counts.verified} verified, ${selected.counts.pending} pending, ${selected.counts.failed} failed`
-              : 'Hover or focus a bar to see daily details.'}
+              : 'Focus a bar to see daily details.'}
           </div>
           <svg viewBox={`0 0 ${chartWidth} ${chartHeight + 24}`} role="img" aria-labelledby="attestation-trend-title" style={{ display: 'block', width: '100%', height: 'auto' }}>
             <title id="attestation-trend-title">Attestation activity over time</title>
@@ -356,7 +377,7 @@ function AttestationTrendChart({ attestations }: { attestations: AttestationList
               </pattern>
             </defs>
             {buckets.map((bucket, index) => {
-              const x = buckets.length === 1 ? (availableWidth - barWidth) / 2 + 12 : 12 + index * step;
+              const x = positions[index];
               let cursor = chartHeight;
               let totalHeight = 0;
               return (
@@ -368,8 +389,6 @@ function AttestationTrendChart({ attestations }: { attestations: AttestationList
                   aria-label={`${bucket.label}: ${bucket.total} attestations, ${bucket.counts.verified} verified, ${bucket.counts.pending} pending, ${bucket.counts.failed} failed`}
                   onFocus={() => setFocusedIndex(index)}
                   onBlur={() => setFocusedIndex(null)}
-                  onMouseEnter={() => setFocusedIndex(index)}
-                  onMouseLeave={() => setFocusedIndex(null)}
                   onKeyDown={(event) => {
                     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
                       event.preventDefault();
@@ -418,6 +437,20 @@ function AttestationTrendChart({ attestations }: { attestations: AttestationList
                 </g>
               );
             })}
+            {buckets.map((bucket, index) =>
+              labelIndices.has(index) ? (
+                <text
+                  key={bucket.dateKey}
+                  x={centers[index]}
+                  y={chartHeight + 16}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fill="var(--muted)"
+                >
+                  {bucket.label}
+                </text>
+              ) : null,
+            )}
           </svg>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '0.5rem' }}>
             {TREND_STATUS_ORDER.map((status) => {
