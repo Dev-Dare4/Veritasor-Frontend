@@ -1,12 +1,13 @@
-import { act } from 'react'
+import { act, Profiler, useCallback, useState } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IntlProvider } from 'react-intl'
-import { AppRoutes } from '../App'
-import { sourcesStore } from '../store/sourcesStore'
-import enMessages from '../i18n/messages/en.json'
-import { CookieConsentProvider } from '../components/CookieConsentContext'
+import { MemoryRouter, Outlet, Route, Routes, useOutletContext } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import App from '../App'
+import {
+  ConnectSourceWizard,
+  OAuthCallbackLandingStep,
+  SelectSourceProviderStep,
+} from '../pages/connect-source/ConnectSourceWizard'
 
 /**
  * Renders the full route tree inside a MemoryRouter so tests can drive
@@ -16,13 +17,98 @@ import { CookieConsentProvider } from '../components/CookieConsentContext'
  * which doesn't resolve in vitest's jsdom environment.
  */
 function renderApp(initialEntry = '/') {
+  window.history.replaceState(null, '', initialEntry)
+  return render(<App />)
+}
+
+function renderOAuthCallback(initialEntry: string, onRender: () => void) {
+  function CallbackHarness() {
+    const [data, setData] = useState({
+      provider: 'stripe',
+      oauthCallbackState: 'success',
+      authorizationStatus: 'idle',
+      optionalScopes: [] as string[],
+    })
+
+    const setOAuthCallbackState = useCallback(
+      (state: 'success' | 'denied' | 'expired' | 'unknown') => {
+        const authorizationStatus =
+          state === 'success'
+            ? 'authorized'
+            : state === 'denied'
+              ? 'denied'
+              : state === 'expired'
+                ? 'expired'
+                : 'unknown'
+
+        setData((currentData) => {
+          if (
+            currentData.oauthCallbackState === state &&
+            currentData.authorizationStatus === authorizationStatus
+          ) {
+            return currentData
+          }
+
+          return { ...currentData, oauthCallbackState: state, authorizationStatus }
+        })
+      },
+      [],
+    )
+    const context = {
+      data,
+      providerName: 'Stripe',
+      setOAuthCallbackState,
+    }
+
+    return (
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route
+            path="/connect-source/callback"
+            element={
+              <Profiler id="oauth-callback" onRender={onRender}>
+                <Outlet context={context} />
+              </Profiler>
+            }
+          >
+            <Route index element={<OAuthCallbackLandingStep />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+
+  return render(<CallbackHarness />)
+}
+
+function OAuthActionIdentityProbe({
+  onAction,
+}: {
+  onAction: (action: (state: 'success' | 'denied' | 'expired' | 'unknown') => void) => void
+}) {
+  const { setOAuthCallbackState } = useOutletContext<{
+    setOAuthCallbackState: (state: 'success' | 'denied' | 'expired' | 'unknown') => void
+  }>()
+  onAction(setOAuthCallbackState)
+  return null
+}
+
+function renderWizardWithActionProbe(onAction: (action: (state: 'success' | 'denied' | 'expired' | 'unknown') => void) => void) {
   return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <IntlProvider locale="en" messages={enMessages}>
-        <CookieConsentProvider>
-          <AppRoutes />
-        </CookieConsentProvider>
-      </IntlProvider>
+    <MemoryRouter initialEntries={['/connect-source/provider']}>
+      <Routes>
+        <Route path="/connect-source" element={<ConnectSourceWizard />}>
+          <Route
+            path="provider"
+            element={
+              <>
+                <SelectSourceProviderStep />
+                <OAuthActionIdentityProbe onAction={onAction} />
+              </>
+            }
+          />
+        </Route>
+      </Routes>
     </MemoryRouter>,
   )
 }
@@ -30,6 +116,7 @@ function renderApp(initialEntry = '/') {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  window.history.replaceState(null, '', '/')
 })
 
 beforeEach(() => {
@@ -40,6 +127,43 @@ beforeEach(() => {
 // ─── Existing wizard flow tests ────────────────────────────────────────────
 
 describe('connect source wizard', () => {
+  it.each([
+    ['?state=denied', /Access Denied/i],
+    ['?status=access_denied', /Access Denied/i],
+    ['?error=timeout', /Session Expired/i],
+    ['?state=success', /Authorization Successful/i],
+    ['?state=invalid_request', /Handoff Error/i],
+  ])('synchronizes OAuth callback URL %s without an update loop', (query, expectedStatus) => {
+    let renderCount = 0
+    renderOAuthCallback(`/connect-source/callback${query}`, () => {
+      renderCount += 1
+    })
+
+    expect(screen.getByText(expectedStatus)).toBeInTheDocument()
+    expect(renderCount).toBeLessThanOrEqual(3)
+  })
+
+  it('keeps OAuth callback actions stable when wizard state changes', () => {
+    const actions: Array<(state: 'success' | 'denied' | 'expired' | 'unknown') => void> = []
+    renderWizardWithActionProbe((action) => {
+      actions.push(action)
+    })
+
+    fireEvent.click(screen.getByLabelText(/stripe/i))
+
+    expect(actions.length).toBeGreaterThanOrEqual(2)
+    expect(actions[0]).toBe(actions[1])
+  })
+
+  it('surfaces the dashboard entry point for the new flow', () => {
+    renderApp('/')
+
+    expect(screen.getByRole('link', { name: /open connect source wizard/i })).toHaveAttribute(
+      'href',
+      '/connect-source/provider',
+    )
+  })
+
   it('redirects locked routes back to the earliest incomplete step', () => {
     renderApp('/connect-source/scope')
 
