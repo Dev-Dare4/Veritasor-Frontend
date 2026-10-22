@@ -39,6 +39,77 @@ describe('OnboardingWizard', () => {
     expect(screen.getByText('Business type is required')).toBeInTheDocument()
   })
 
+  it('recovers from a corrupt stored draft and renders a valid step', () => {
+    localStorage.setItem(
+      'veritasor_onboarding_draft',
+      JSON.stringify({ step: 99, business: null }),
+    )
+
+    render(
+      <MemoryRouter>
+        <OnboardingWizard />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByRole('heading', { name: 'Business details' })).toBeInTheDocument()
+    expect(screen.getByText('1 / 6')).toBeInTheDocument()
+  })
+
+  it('restores a step 5 draft with empty business details to step 1', () => {
+    localStorage.setItem(
+      'veritasor_onboarding_draft',
+      JSON.stringify({ step: 5, business: null }),
+    )
+
+    render(
+      <MemoryRouter>
+        <OnboardingWizard />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByRole('heading', { name: 'Business details' })).toBeInTheDocument()
+    expect(screen.getByText('1 / 6')).toBeInTheDocument()
+  })
+
+  it('starts over from a restored draft and clears storage', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem(
+      'veritasor_onboarding_draft',
+      JSON.stringify({
+        step: 3,
+        business: {
+          legalName: 'Acme Corp',
+          registrationNumber: '12345',
+          country: 'USA',
+          businessType: 'LLC',
+          website: '',
+        },
+        owner: {
+          fullName: 'John Doe',
+          dateOfBirth: '1990-01-01',
+          nationality: 'American',
+          addressLine1: '123 Main St',
+          addressLine2: '',
+          city: 'New York',
+          postalCode: '10001',
+        },
+      }),
+    )
+
+    render(
+      <MemoryRouter>
+        <OnboardingWizard />
+      </MemoryRouter>
+    )
+
+    expect(screen.getByRole('heading', { name: 'Selfie verification' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /start over/i }))
+
+    expect(screen.getByRole('heading', { name: 'Business details' })).toBeInTheDocument()
+    expect(localStorage.getItem('veritasor_onboarding_draft')).toBeNull()
+  })
+
   it('can complete the primary state transitions and submit', async () => {
     const user = userEvent.setup()
     const { container } = render(
@@ -66,11 +137,9 @@ describe('OnboardingWizard', () => {
 
     // --- STEP 3: Selfie ---
     expect(await screen.findByRole('heading', { name: 'Selfie verification' })).toBeInTheDocument()
-    // Switch to upload photo fallback
-    const selfieUploadInsteadBtn = screen.getByRole('button', { name: /upload photo instead/i })
-    await user.click(selfieUploadInsteadBtn)
+    await user.click(screen.getByRole('button', { name: /upload photo instead/i }))
 
-    const selfieInput = container.querySelector('#sc-upload-input') as HTMLInputElement
+    const selfieInput = screen.getByLabelText(/upload selfie photo/i)
     const selfieFile = new File(['hello'], 'selfie.jpg', { type: 'image/jpeg' })
     await user.upload(selfieInput, selfieFile)
     await user.click(screen.getByRole('button', { name: /continue/i }))
@@ -130,7 +199,7 @@ describe('OnboardingWizard', () => {
     await user.type(screen.getByLabelText(/Bank name/i), 'Test Bank')
     await user.type(screen.getByLabelText(/Account number/i), '123456789')
     await user.selectOptions(screen.getByLabelText(/Settlement currency/i), 'USD')
-    await user.type(screen.getByLabelText(/IBAN \/ SWIFT-BIC/i), 'US123456')
+    await user.type(screen.getByLabelText(/IBAN \/ SWIFT/i), 'US123456')
     await user.click(screen.getByRole('button', { name: /continue/i }))
     
     // --- STEP 6: Review & Submit ---

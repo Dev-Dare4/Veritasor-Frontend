@@ -302,6 +302,120 @@ describe('useOnboardingDraft — BankDetails and persistence lifecycle', () => {
   })
 })
 
+describe('useOnboardingDraft — restored draft validation (issue #854)', () => {
+  const FULL_DRAFT = {
+    version: 1,
+    step: 6,
+    business: BUSINESS,
+    owner: OWNER,
+    selfie: { captured: true, fileName: 'selfie.jpg' },
+    documents: DOCUMENTS,
+    bank: BANK,
+  }
+
+  it.each([
+    ['an invalid JSON payload', '{not-valid-json', 1],
+    ['a null draft', 'null', 1],
+    ['an array draft', '[]', 1],
+    ['a step below the valid range', JSON.stringify({ ...FULL_DRAFT, step: 0 }), 1],
+    ['a step above the valid range', JSON.stringify({ ...FULL_DRAFT, step: 99 }), 6],
+    ['a numeric string step', JSON.stringify({ ...FULL_DRAFT, step: '3' }), 3],
+    ['a fractional step', JSON.stringify({ ...FULL_DRAFT, step: 4.9 }), 4],
+    ['a non-numeric step', JSON.stringify({ ...FULL_DRAFT, step: 'two' }), 1],
+  ])('normalises %s', (_name, raw, expectedStep) => {
+    localStorage.setItem(STORAGE_KEY, raw)
+
+    const { result } = renderHook(() => useOnboardingDraft())
+
+    expect(result.current.draft.step).toBe(expectedStep)
+    expect(result.current.draft.step).toBeGreaterThanOrEqual(1)
+    expect(result.current.draft.step).toBeLessThanOrEqual(6)
+  })
+
+  it('restores a step 5 draft with empty business details to step 1', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ ...FULL_DRAFT, step: 5, business: null }),
+    )
+
+    const { result } = renderHook(() => useOnboardingDraft())
+
+    expect(result.current.draft.step).toBe(1)
+    expect(result.current.draft.business).toEqual({
+      legalName: '',
+      registrationNumber: '',
+      country: '',
+      businessType: '',
+      website: '',
+    })
+  })
+
+  it.each([
+    ['business details are incomplete', { step: 4, business: { ...BUSINESS, legalName: '' } }, 1],
+    ['owner details are incomplete', { step: 4, owner: { ...OWNER, city: '' } }, 2],
+    ['the selfie is missing', { step: 5, selfie: { captured: false, fileName: '' } }, 3],
+    ['documents are missing', { step: 6, documents: { ...DOCUMENTS, govIdBack: [] } }, 4],
+    ['bank details are missing', { step: 6, bank: { ...BANK, ibanSwift: '' } }, 5],
+  ])('clamps to the first incomplete step when %s', (_name, patch, expectedStep) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...FULL_DRAFT, ...patch }))
+
+    const { result } = renderHook(() => useOnboardingDraft())
+
+    expect(result.current.draft.step).toBe(expectedStep)
+  })
+
+  it('deep-merges each nested section with the defaults and coerces field types', () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        step: 2,
+        business: {
+          legalName: 'Acme Trading Ltd',
+          registrationNumber: 1234567,
+          country: 'NG',
+          businessType: 'retail',
+          website: null,
+        },
+        owner: { fullName: 'Ada Lovelace', city: 42 },
+        selfie: { captured: 'yes', fileName: 7 },
+        documents: { registrationCert: 'cert.pdf', govIdFront: [1, 'front.jpg', null] },
+      }),
+    )
+
+    const { result } = renderHook(() => useOnboardingDraft())
+
+    expect(result.current.draft.business).toEqual({
+      legalName: 'Acme Trading Ltd',
+      registrationNumber: '',
+      country: 'NG',
+      businessType: 'retail',
+      website: '',
+    })
+    expect(result.current.draft.owner).toEqual({
+      fullName: 'Ada Lovelace',
+      dateOfBirth: '',
+      nationality: '',
+      addressLine1: '',
+      addressLine2: '',
+      city: '',
+      postalCode: '',
+    })
+    expect(result.current.draft.selfie).toEqual({ captured: false, fileName: '' })
+    expect(result.current.draft.documents).toEqual({
+      registrationCert: [],
+      govIdFront: ['front.jpg'],
+      govIdBack: [],
+      proofOfAddress: [],
+    })
+    expect(result.current.draft.bank).toEqual({
+      bankName: '',
+      accountNumber: '',
+      ibanSwift: '',
+      currency: '',
+    })
+  })
+})
+
 describe('useOnboardingDraft — storage failures', () => {
   it('still updates in-memory state when localStorage.setItem throws', () => {
     const setItem = vi

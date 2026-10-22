@@ -5,6 +5,7 @@ import ReviewSubmitStep from './ReviewSubmitStep'
 import type { OnboardingDraft } from '../../hooks/useOnboardingDraft'
 
 const mockDraft: OnboardingDraft = {
+  version: 1,
   step: 6,
   business: {
     legalName: 'Acme Corp',
