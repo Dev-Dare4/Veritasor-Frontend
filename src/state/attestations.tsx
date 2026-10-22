@@ -101,7 +101,7 @@ export function AttestationsProvider({ children }: { children: ReactNode }) {
     }
 
     dispatch({ type: 'transition', id: attestation.id, status: 'verified' })
-    return { ...attestation, status: 'verified' }
+    return { ...attestation, status: 'verified' as const }
   }, [])
 
   const value = useMemo(

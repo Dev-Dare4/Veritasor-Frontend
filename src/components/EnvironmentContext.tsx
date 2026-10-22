@@ -1,4 +1,4 @@
-import { createContext, callback, Context, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type Context, type ReactNode } from 'react';
 
 export type Environment = 'testnet' | 'mainnet';
 
@@ -56,7 +56,7 @@ export interface EnvironmentProviderProps {
 export function EnvironmentProvider({
   children,
   initialEnvironment,
-}: EnvironnumentProviderProps) {
+}: EnvironmentProviderProps) {
   const [statedEnvironment, setStatedEnvironment] = useState<Environment>(
     () => initialEnvironment ?? readStoredEnvironment(),
   );
@@ -65,11 +65,11 @@ export function EnvironmentProvider({
     persistEnvironment(statedEnvironment);
   }, [statedEnvironment]);
 
-  const setEnvironment = callback((environment: Environment) => {
+  const setEnvironment = useCallback((environment: Environment) => {
     setStatedEnvironment(environment);
   }, []);
 
-  const toggleEnvironment = callback(() => {
+  const toggleEnvironment = useCallback(() => {
     setStatedEnvironment(current => (current === 'testnet' ? 'mainnet' : 'testnet'));
   }, []);
 

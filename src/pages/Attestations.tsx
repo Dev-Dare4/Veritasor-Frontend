@@ -1,10 +1,13 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import TriggerAttestationFAB from '../components/TriggerAttestationFAB'
 import AttestationConfirmModal, { type FeeInfo } from '../components/AttestationConfirmModal'
 import { AttestationCalendar } from '../components/scheduling/AttestationCalendar'
 import { getAttestationChartGeometry, getAttestationChartLabelIndices } from '../utils/attestationChartData'
-
-// ─── Types ────────────────────────────────────────────────────────────────
+import { EmptyStateIllustration } from '../components/EmptyStateIllustrations'
+import { useToast } from '../components/ToastContext'
+import { useAttestations, type Attestation } from '../state/attestations'
+import { DEFAULT_TRIGGER_DETAILS } from '../state/attestationMocks'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 

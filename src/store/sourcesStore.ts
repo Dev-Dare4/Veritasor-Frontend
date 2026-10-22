@@ -20,6 +20,8 @@ export interface Source {
   accountLabel: string
   status: HealthStatus
   lastSync: string | null
+  /** ISO timestamp when the provider's OAuth token expired, if it has. */
+  tokenExpiredAt?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -28,8 +30,8 @@ export interface Source {
 
 export const INITIAL_SOURCES: Source[] = [
   { id: 'src-001', provider: 'Stripe',     accountLabel: 'acct_1A2B3C4D',         status: 'healthy', lastSync: '2026-06-01T14:00:00Z' },
-  { id: 'src-002', provider: 'Shopify',    accountLabel: 'my-store.myshopify.com', status: 'warning', lastSync: '2026-05-30T08:15:00Z' },
-  { id: 'src-003', provider: 'QuickBooks', accountLabel: 'Acme Corp',              status: 'error',   lastSync: '2026-05-20T11:45:00Z' },
+  { id: 'src-002', provider: 'Shopify',    accountLabel: 'my-store.myshopify.com', status: 'warning', lastSync: '2026-05-30T08:15:00Z', tokenExpiredAt: '2026-06-18T00:00:00Z' },
+  { id: 'src-003', provider: 'QuickBooks', accountLabel: 'Acme Corp',              status: 'error',   lastSync: '2026-05-20T11:45:00Z', tokenExpiredAt: '2026-05-25T00:00:00Z' },
 ]
 
 const STORAGE_KEY = 'veritasor-sources-v1'
@@ -46,7 +48,8 @@ function isValidSource(v: unknown): v is Source {
     typeof s.provider === 'string' &&
     typeof s.accountLabel === 'string' &&
     (s.status === 'healthy' || s.status === 'warning' || s.status === 'error') &&
-    (s.lastSync === null || typeof s.lastSync === 'string')
+    (s.lastSync === null || typeof s.lastSync === 'string') &&
+    (s.tokenExpiredAt === undefined || typeof s.tokenExpiredAt === 'string')
   )
 }
 

@@ -11,6 +11,7 @@ import ContextualHelpSearch from "./ContextualHelpSearch";
 import { useSession } from "../hooks/useSession";
 import { SessionExpiryWarning } from "./SessionExpiryWarning";
 import { ReauthModal } from "./ReauthModal";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 const configuredSessionDuration = Number(
   import.meta.env.VITE_SESSION_DURATION_MINUTES
@@ -29,6 +30,30 @@ const WARNING_BEFORE_MINUTES =
   configuredWarningBefore < SESSION_DURATION_MINUTES
     ? configuredWarningBefore
     : Math.min(5, SESSION_DURATION_MINUTES / 2);
+
+// ---------------------------------------------------------------------------
+// Route title map
+// ---------------------------------------------------------------------------
+
+const ROUTE_TITLES: Record<string, string> = {
+  '/dashboard': 'Dashboard',
+  '/attestations': 'Attestations',
+  '/sources': 'Revenue Sources',
+  '/api-keys': 'API Keys',
+  '/help': 'Help',
+  '/settings': 'Settings',
+  '/consent-preferences': 'Cookie Preferences',
+}
+
+function getPageTitle(pathname: string): string {
+  const label = ROUTE_TITLES[pathname] ?? 'Veritasor'
+  return label === 'Veritasor' ? 'Veritasor — Revenue Attestations' : `${label} — Veritasor`
+}
+
+function focusHamburger() {
+  const btn = document.querySelector<HTMLButtonElement>('[aria-controls="app-sidebar"]')
+  btn?.focus()
+}
 
 function BillingBannerSlot() {
   const { failedPayment, dismissFailedPayment } = useBilling();
@@ -96,12 +121,29 @@ function LayoutInner() {
     });
   }, [location, navigate]);
 
-  /**
-   * Sequential key chord tracker for multi-key shortcuts.
-   * Tracks the last key pressed so we can detect Ctrl+K → W.
-   */
-  const lastKeyRef = useRef<{ key: string; ctrlOrMeta: boolean } | null>(null);
-  const chordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const prevPathRef = useRef(location.pathname);
+
+  // Centralized keyboard shortcuts
+  useKeyboardShortcuts({
+    onNavigateDashboard: () => navigate('/dashboard'),
+    onNavigateAttestations: () => navigate('/attestations'),
+    onNavigateSources: () => navigate('/sources'),
+    onConnectRevenueSource: () => navigate('/connect-source/provider'),
+    onOpenHelpSearch: () => setHelpSearchOpen(true),
+    onToggleShortcuts: () => setShortcutsOpen((o) => !o),
+    onOpenCommandPalette: () => {
+      // Placeholder for command palette
+    },
+    onWorkspaceJump: () => {
+      setOpenWsSwitcherInSearchMode(true);
+    },
+    onCloseOverlay: () => {
+      setShortcutsOpen(false);
+      setHelpSearchOpen(false);
+      setSidebarOpen(false);
+    },
+  });
 
   // Close sidebar, update title, move focus on route change
   useEffect(() => {
@@ -121,37 +163,6 @@ function LayoutInner() {
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [sidebarOpen]);
-
-  // Global keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement).tagName;
-      const isEditable = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-      if (!isEditable && e.shiftKey && e.key === "?") {
-        e.preventDefault();
-        setShortcutsOpen((o) => !o);
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === "k" && !isEditable) {
-        e.preventDefault();
-        if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-        lastKeyRef.current = { key: "k", ctrlOrMeta: true };
-        chordTimerRef.current = setTimeout(() => { lastKeyRef.current = null; }, 1500);
-        return;
-      }
-      if (!isEditable && e.key === "w" && lastKeyRef.current?.key === "k" && lastKeyRef.current?.ctrlOrMeta) {
-        e.preventDefault();
-        if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-        lastKeyRef.current = null;
-        return;
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
-    };
-  }, []);
 
   function toggleSidebar() { setSidebarOpen((o) => !o); }
   function closeSidebar() { setSidebarOpen(false); }

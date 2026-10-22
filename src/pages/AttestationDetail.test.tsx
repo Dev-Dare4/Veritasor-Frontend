@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { EnvironmentProvider } from '../context/EnvironmentContext'
+import { EnvironmentProvider } from '../components/EnvironmentContext'
 import AttestationDetail from './AttestationDetail'
 import { ToastProvider } from '../components/ToastContext'
 

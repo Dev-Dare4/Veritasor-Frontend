@@ -168,7 +168,7 @@ export default function OnboardingWizard() {
       window.cancelAnimationFrame(rafIdRef.current)
       rafIdRef.current = null
     }
-    pendingUpdaterRef.current = null
+    pendingUpdatersRef.current = []
     clearDraft()
   }
 

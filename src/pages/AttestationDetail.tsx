@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useParams, Link } from 'react-router-dom'
-import { useEnvironment } from '../context/EnvironmentContext'
+import { useEnvironment } from '../components/EnvironmentContext'
 import Breadcrumb from '../components/Breadcrumb'
 import StatusTimeline, { 
   TimelineStep, 
@@ -359,7 +359,9 @@ function BackLink({ className = '' }: { className?: string }) {
 export default function AttestationDetail() {
   const { id } = useParams<{ id: string }>()
   const { environment } = useEnvironment()
-  const attestation = id ? MOCK[id] : undefined
+  const { getById } = useAttestations()
+  const attestation = id ? getById(id) : undefined
+  const stellarExplorer = STELLAR_EXPLORER_BASE[environment]
   const [printedOn, setPrintedOn] = useState<string | null>(null)
   const [now] = useState(() => new Date())
   const [isShareOpen, setIsShareOpen] = useState(false)

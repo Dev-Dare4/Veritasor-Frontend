@@ -66,45 +66,17 @@ const router = createBrowserRouter([
   future: { v7_relativeSplatPath: true },
 })
 
-/** Production entry point — wraps AppRoutes in BrowserRouter + providers. */
+/** Production entry point — wraps the data router in app-wide providers. */
 export default function App() {
   return (
     <LocaleProvider>
       <ToastProvider>
         <AttestationsProvider>
           <CookieConsentProvider>
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <Routes>
-                <Route path="/" element={<Landing />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/signup" element={<Signup />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/onboarding" element={<OnboardingWizard />} />
-                <Route path="/500" element={<ServerError />} />
-                <Route element={<Layout />}>
-                  <Route path="dashboard" element={<Dashboard />} />
-                  <Route path="attestations" element={<Attestations />} />
-                  <Route path="attestations/:id" element={<AttestationDetail />} />
-                  <Route path="sources" element={<RevenueSources />} />
-                  <Route path="settings" element={<Settings />} />
-                  <Route path="api-keys" element={<ApiKeys />} />
-                  <Route path="help" element={<HelpArticle />} />
-                  <Route path="consent-preferences" element={<ConsentPreferences />} />
-                  <Route path="connect-source" element={<ConnectSourceWizard />}>
-                    <Route path="provider" element={<SelectSourceProviderStep />} />
-                    <Route path="authorize" element={<AuthorizeSourceStep />} />
-                    <Route path="callback" element={<OAuthCallbackLandingStep />} />
-                    <Route path="scope" element={<ConfigureSourceScopeStep />} />
-                    <Route path="mapping" element={<MapCurrenciesStep />} />
-                    <Route path="confirm" element={<ConfirmSourceStep />} />
-                  </Route>
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
+            <RouterProvider router={router} future={{ v7_startTransition: true }} />
           </CookieConsentProvider>
         </AttestationsProvider>
-    </ToastProvider>
+      </ToastProvider>
     </LocaleProvider>
   )
 }

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useIntl } from "react-intl";
 import { useNavigate } from "react-router-dom";
 import LocalePicker from "./LocalePicker/LocalePicker";
-import { useEnvironment } from "../context/EnvironmentContext";
+import { useEnvironment } from "./EnvironmentContext";
+import ConfirmDialog from "./ConfirmDialog";
 
 export interface WorkspaceMetadata {
   id: string;
@@ -102,6 +103,9 @@ export default function TopAppBar({
   const [announcement, setAnnouncement] = useState("");
   const intl = useIntl();
   const navigate = useNavigate();
+  const { environment, setEnvironment } = useEnvironment();
+  const [confirmMainnetOpen, setConfirmMainnetOpen] = useState(false);
+  const confirmMainnetTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const currentWorkspace = useMemo(
     () => workspaces.find((ws) => ws.id === workspaceId) || workspaces[0] || DEFAULT_WORKSPACES[0],
@@ -868,25 +872,21 @@ export default function TopAppBar({
             {environment}
           </button>
 
-          {confirmMainnetOpen && (
-            <ConfirmDialog
-              title="Switch to mainnet?"
-              message="Actions you take will publish attestations to the live Stellar mainnet network. This cannot be undone."
-              confirmLabel="Switch to mainnet"
-              cancelLabel="Cancel"
-              onConfirm={() => {
-                setEnvironment("mainnet");
-                setConfirmMainnetOpen(false);
-                setAnnouncement("Switched to mainnet environment");
-                setTimeout(() => setAnnouncement(""), 1000);
-                confirmMainnetTriggerRef.current?.focus();
-              }}
-              onCancel={() => {
-                setConfirmMainnetOpen(false);
-                confirmMainnetTriggerRef.current?.focus();
-              }}
-            />
-          )}
+          <ConfirmDialog
+            open={confirmMainnetOpen}
+            title="Switch to mainnet?"
+            description="Actions you take will publish attestations to the live Stellar mainnet network. This cannot be undone."
+            confirmText="Confirm switch"
+            cancelText="Cancel"
+            tone="danger"
+            onConfirm={() => {
+              setEnvironment("mainnet");
+              setConfirmMainnetOpen(false);
+              setAnnouncement("Switched to mainnet environment");
+              setTimeout(() => setAnnouncement(""), 1000);
+            }}
+            onClose={() => setConfirmMainnetOpen(false)}
+          />
 
           <div style={{ position: "relative" }}>
             <button

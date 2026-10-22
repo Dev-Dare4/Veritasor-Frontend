@@ -1,5 +1,5 @@
 import { createContext, useContext, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import LocalePickerField from '../components/LocalePicker/LocalePickerField'
 import AuditLogTimeline, { type AuditLogEntry } from '../components/audit-log/AuditLogTimeline'
 import type { AuditLogEntryDetail } from '../components/audit-log/AuditLogDetailDrawer'
@@ -10,7 +10,8 @@ import A11yCoverageMatrix from '../components/a11y/A11yCoverageMatrix'
 import SettingsIntegrationsPanel from './SettingsIntegrationsPanel'
 import MfaMethodChooser from '../components/MfaMethodChooser'
 import type { MfaMethod } from '../components/MfaMethodChooser'
-import WebhookRetryPanel, { type WebhookDelivery } from '../components/WebhookRetryPanel'
+import WebhookRetryPanel from '../components/WebhookRetryPanel'
+import type { WebhookDelivery } from '../components/api-keys/apiKeyTypes'
 import DensityToggle from '../components/DensityToggle'
 import DirtyStateBanner from '../components/DirtyStateBanner'
 import { useDirtyForm, type SaveStatus } from '../hooks/useDirtyForm'
@@ -1827,7 +1828,6 @@ function PlanCard({
         style={{
           padding: "0.65rem 1rem",
           borderRadius: 8,
-          border: "none",
           background: isSelected
             ? "var(--accent)"
             : isCurrent
