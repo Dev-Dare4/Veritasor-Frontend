@@ -28,6 +28,7 @@ type Props = {
   onBack: () => void
   onNext: (data: DocumentUpload, files: FileMap) => void
   rejections?: Partial<Record<DocField, { reason: string }>>
+  files?: FileMap
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -365,13 +366,44 @@ function IdCaptureCard({ fieldKey, label, hint, capturedFile, onCapture, onRetak
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export default function DocumentUploadStep({ onBack, onNext, rejections }: Props) {
-  const [files, setFiles] = useState<FileMap>({
-    registrationCert: [],
-    govIdFront: [],
-    govIdBack: [],
-    proofOfAddress: [],
-  })
+export default function DocumentUploadStep({ data, onBack, onNext, rejections, files: initialFiles }: Props) {
+  const [files, setFiles] = useState<FileMap>(() => ({
+    registrationCert: initialFiles?.registrationCert ?? [],
+    govIdFront: initialFiles?.govIdFront ?? [],
+    govIdBack: initialFiles?.govIdBack ?? [],
+    proofOfAddress: initialFiles?.proofOfAddress ?? [],
+  }))
+
+  // Sync wizard-level files back into local state on re-entry (Back navigation).
+  // The wizard lifts captured File objects into a ref and passes them back here;
+  // if the step stays mounted across navigation, the initializer above won't
+  // re-run, so mirror the prop into state whenever it changes.
+  useEffect(() => {
+    if (!initialFiles) return
+    setFiles({
+      registrationCert: initialFiles.registrationCert ?? [],
+      govIdFront: initialFiles.govIdFront ?? [],
+      govIdBack: initialFiles.govIdBack ?? [],
+      proofOfAddress: initialFiles.proofOfAddress ?? [],
+    })
+  }, [initialFiles])
+
+  // Names remembered by the wizard (survive Back navigation and reloads).
+  // When a name exists but no File object is in memory (e.g. after a reload),
+  // the requirement is treated as unmet and the user is told to re-upload.
+  const knownNames: Record<DocField, string[]> = {
+    registrationCert: data?.registrationCert ?? [],
+    govIdFront: data?.govIdFront ?? [],
+    govIdBack: data?.govIdBack ?? [],
+    proofOfAddress: data?.proofOfAddress ?? [],
+  }
+
+  const hasStaleFile = useCallback(
+    (field: DocField) => files[field].length === 0 && knownNames[field].length > 0,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [files, data],
+  )
+
   const [errors, setErrors] = useState<Partial<Record<DocField, string>>>({})
   const [dragOver, setDragOver] = useState<DocField | null>(null)
   const inputRefs = useRef<Partial<Record<DocField, HTMLInputElement>>>({})
@@ -421,7 +453,7 @@ export default function DocumentUploadStep({ onBack, onNext, rejections }: Props
     e.preventDefault()
     const errs: Partial<Record<DocField, string>> = {}
     FIELDS.forEach(({ key, required }) => {
-      if (required && files[key].length === 0) errs[key] = 'This document is required'
+      if (required && files[key].length === 0) errs[key] = 'This document is required — please re-upload'
     })
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
@@ -467,6 +499,14 @@ export default function DocumentUploadStep({ onBack, onNext, rejections }: Props
               {label}
             </label>
             <span className="ob-hint" id={`doc-hint-${key}`}>{hint}</span>
+
+            {/* ── Stale-file notice (names known, File objects lost) ────── */}
+            {hasStaleFile(key) && (
+              <p className="ob-hint ob-stale-notice" role="status" aria-live="polite">
+                <span aria-hidden="true">↻</span>{' '}
+                Previously uploaded: <strong>{knownNames[key].join(', ')}</strong> — re-upload required.
+              </p>
+            )}
 
             {/* ── Rejection card ───────────────────────────────────────── */}
             {rejections?.[key] && files[key].length === 0 ? (
@@ -572,6 +612,13 @@ export default function DocumentUploadStep({ onBack, onNext, rejections }: Props
 
             {errors[key] && (
               <span className="ob-error" role="alert">{errors[key]}</span>
+            )}
+
+            {/* ── Stale-file error (submit attempted without re-upload) ─── */}
+            {hasStaleFile(key) && errors[key] && (
+              <span className="ob-error" role="alert">
+                {errors[key]}
+              </span>
             )}
           </div>
         )
