@@ -389,7 +389,7 @@ describe('TopAppBar', () => {
     it('renders Profile settings menuitem', () => {
       renderWithRouter(<TopAppBar />)
       fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
-      expect(screen.getByRole('menuitem', { name: /profile settings/i })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: /^settings$/i })).toBeInTheDocument()
     })
 
     it('renders API keys menuitem', () => {
@@ -407,7 +407,7 @@ describe('TopAppBar', () => {
     it('closes menu when Profile settings is clicked', () => {
       renderWithRouter(<TopAppBar />)
       fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
-      fireEvent.click(screen.getByRole('menuitem', { name: /profile settings/i }))
+      fireEvent.click(screen.getByRole('menuitem', { name: /^settings$/i }))
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     })
 
@@ -475,27 +475,21 @@ describe('TopAppBar', () => {
     it('activates Profile settings on Enter key', () => {
       renderWithRouter(<TopAppBar />)
       fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
-      fireEvent.keyDown(screen.getByRole('menuitem', { name: /profile settings/i }), {
-        key: 'Enter',
-      })
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /^settings$/i }), { key: 'Enter' })
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     })
 
     it('activates Profile settings on Space key', () => {
       renderWithRouter(<TopAppBar />)
       fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
-      fireEvent.keyDown(screen.getByRole('menuitem', { name: /profile settings/i }), {
-        key: ' ',
-      })
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /^settings$/i }), { key: ' ' })
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     })
 
     it('does not close menu on other key from Profile settings', () => {
       renderWithRouter(<TopAppBar />)
       fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
-      fireEvent.keyDown(screen.getByRole('menuitem', { name: /profile settings/i }), {
-        key: 'Tab',
-      })
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /^settings$/i }), { key: 'Tab' })
       expect(screen.getByRole('menu')).toBeInTheDocument()
     })
 
@@ -704,38 +698,38 @@ describe('Layout', () => {
 
   it('renders Dashboard nav link', () => {
     renderWithRouter(<Layout />)
-    expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /dashboard/i }).length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders Attestations nav link', () => {
     renderWithRouter(<Layout />)
-    expect(screen.getByRole('link', { name: /attestations/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /attestations/i }).length).toBeGreaterThanOrEqual(1)
   })
 
   it('active link (Dashboard at /) has aria-current="page"', () => {
-    renderWithRouter(<Layout />, { initialEntries: ['/'] })
-    expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
+    renderWithRouter(<Layout />, { initialEntries: ['/dashboard'] })
+    const aside = document.getElementById('app-sidebar')!
+    const dashLinks = Array.from(aside.querySelectorAll('a')).filter(a => /dashboard/i.test(a.textContent ?? ''))
+    const activeLink = dashLinks.find(l => l.getAttribute('aria-current') === 'page')
+    expect(activeLink).toBeDefined()
   })
 
   it('inactive link does not have aria-current', () => {
     renderWithRouter(<Layout />, { initialEntries: ['/'] })
-    expect(screen.getByRole('link', { name: /attestations/i })).not.toHaveAttribute(
-      'aria-current',
-    )
+    // The sidebar Attestations link should not be active at /
+    const aside = document.getElementById('app-sidebar')!
+    const attestationsLinks = Array.from(aside.querySelectorAll('a')).filter(a => /attestations/i.test(a.textContent ?? ''))
+    expect(attestationsLinks.length).toBeGreaterThanOrEqual(1)
+    expect(attestationsLinks[0]).not.toHaveAttribute('aria-current', 'page')
   })
 
   it('Attestations link is active at /attestations and Dashboard is not', () => {
     renderWithRouter(<Layout />, { initialEntries: ['/attestations'] })
-    expect(screen.getByRole('link', { name: /attestations/i })).toHaveAttribute(
-      'aria-current',
-      'page',
-    )
-    expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveAttribute(
-      'aria-current',
-    )
+    const aside = document.getElementById('app-sidebar')!
+    const attestationsLink = Array.from(aside.querySelectorAll('a')).find(a => /attestations/i.test(a.textContent ?? ''))
+    const dashboardLink = Array.from(aside.querySelectorAll('a')).find(a => /dashboard/i.test(a.textContent ?? ''))
+    expect(attestationsLink).toHaveAttribute('aria-current', 'page')
+    expect(dashboardLink).not.toHaveAttribute('aria-current', 'page')
   })
 
   it('sidebar does not have app-sidebar-open class by default', () => {

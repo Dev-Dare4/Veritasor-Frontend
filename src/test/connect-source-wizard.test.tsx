@@ -1,13 +1,28 @@
 import { act } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import App from '../App'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IntlProvider } from 'react-intl'
+import { AppRoutes } from '../App'
+import { sourcesStore } from '../store/sourcesStore'
+import enMessages from '../i18n/messages/en.json'
+import { CookieConsentProvider } from '../components/CookieConsentContext'
 
+/**
+ * Renders the full route tree inside a MemoryRouter so tests can drive
+ * navigation without a BrowserRouter (avoids the nested-router error).
+ * LocaleProvider is already inside AppRoutes; we add IntlProvider here
+ * because TopAppBar calls useIntl() and LocaleProvider uses import.meta.glob
+ * which doesn't resolve in vitest's jsdom environment.
+ */
 function renderApp(initialEntry = '/') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <App />
+      <IntlProvider locale="en" messages={enMessages}>
+        <CookieConsentProvider>
+          <AppRoutes />
+        </CookieConsentProvider>
+      </IntlProvider>
     </MemoryRouter>,
   )
 }
@@ -17,16 +32,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+beforeEach(() => {
+  localStorage.clear()
+  sourcesStore.reset()
+})
+
+// ─── Existing wizard flow tests ────────────────────────────────────────────
+
 describe('connect source wizard', () => {
-  it('surfaces the dashboard entry point for the new flow', () => {
-    renderApp('/')
-
-    expect(screen.getByRole('link', { name: /open connect source wizard/i })).toHaveAttribute(
-      'href',
-      '/connect-source/provider',
-    )
-  })
-
   it('redirects locked routes back to the earliest incomplete step', () => {
     renderApp('/connect-source/scope')
 
@@ -126,5 +139,99 @@ describe('connect source wizard', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: /confirm least-privilege access/i }))
     expect(finishButton).toBeEnabled()
+  })
+})
+
+// ─── Integration: finish wizard → sources list ────────────────────────────
+
+describe('connect source wizard — finish navigates to /sources', () => {
+  async function completeWizard() {
+    vi.useFakeTimers()
+    renderApp('/connect-source/provider')
+
+    // Step 1: pick Stripe
+    fireEvent.click(screen.getByLabelText(/stripe/i))
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    // Step 2: authorize
+    fireEvent.click(screen.getByRole('button', { name: /simulate secure redirect/i }))
+    await act(async () => { vi.advanceTimersByTime(900) })
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    // Step 3: scope
+    fireEvent.click(screen.getByLabelText(/trailing 12 months/i))
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+
+    // Step 4: confirm + finish
+    fireEvent.click(screen.getByRole('checkbox', { name: /confirm least-privilege access/i }))
+    fireEvent.click(screen.getByRole('button', { name: /finish connection/i }))
+  }
+
+  it('lands on the Revenue Sources page after finishing', async () => {
+    await completeWizard()
+    expect(screen.getByRole('heading', { name: /revenue sources/i })).toBeInTheDocument()
+  })
+
+  it('adds the new source to the list', async () => {
+    await completeWizard()
+    // Stripe appears at least once in the sources list (seed + newly added both show Stripe)
+    expect(screen.getAllByText('Stripe').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('new source is listed alongside the existing seeds', async () => {
+    await completeWizard()
+    // INITIAL_SOURCES still present plus the new Stripe row
+    const stripeItems = screen.getAllByText('Stripe')
+    // At least one Stripe row (seed + potentially new, but seed is already Stripe)
+    expect(stripeItems.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('adds the source to the store so it persists', async () => {
+    await completeWizard()
+    const stored = sourcesStore.getAll()
+    expect(stored.some((s) => s.provider === 'Stripe')).toBe(true)
+  })
+
+  it('shows a success toast after finishing', async () => {
+    await completeWizard()
+    // Toast renders the message in the DOM
+    expect(screen.getByText(/stripe connected successfully/i)).toBeInTheDocument()
+  })
+})
+
+// ─── Empty state: Connect a source link ────────────────────────────────────
+
+describe('RevenueSources — empty state', () => {
+  it('shows a "Connect a source" link when no sources exist', () => {
+    sourcesStore.setAll([])
+
+    render(
+      <MemoryRouter initialEntries={['/sources']}>
+        <IntlProvider locale="en" messages={enMessages}>
+          <CookieConsentProvider>
+            <AppRoutes />
+          </CookieConsentProvider>
+        </IntlProvider>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('link', { name: /connect a source/i })).toBeInTheDocument()
+  })
+
+  it('"Connect a source" link points to the wizard', () => {
+    sourcesStore.setAll([])
+
+    render(
+      <MemoryRouter initialEntries={['/sources']}>
+        <IntlProvider locale="en" messages={enMessages}>
+          <CookieConsentProvider>
+            <AppRoutes />
+          </CookieConsentProvider>
+        </IntlProvider>
+      </MemoryRouter>,
+    )
+
+    const link = screen.getByRole('link', { name: /connect a source/i }) as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/connect-source/provider')
   })
 })

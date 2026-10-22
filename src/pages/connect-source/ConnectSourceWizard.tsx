@@ -8,6 +8,8 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import WizardProgress from '../../components/WizardProgress'
+import { useToast } from '../../components/ToastContext'
+import { sourcesStore, generateSourceId } from '../../store/sourcesStore'
 
 type ProviderId = 'stripe' | 'shopify' | 'razorpay'
 type OAuthCallbackState = 'success' | 'denied' | 'expired' | 'unknown'
@@ -266,6 +268,7 @@ function useWizardContext() {
 export function ConnectSourceWizard() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { addToast } = useToast()
   const [data, setData] = useState<WizardData>(initialWizardData)
   const currentStepIndex = getStepIndex(location.pathname)
   const providerName = getProviderName(data.provider)
@@ -356,7 +359,18 @@ export function ConnectSourceWizard() {
     }
 
     if (isLastStep) {
-      navigate('/')
+      // Build a new Source from wizard data and add it to the shared store
+      const providerName = getProviderName(data.provider)
+      const newSource = {
+        id: generateSourceId(),
+        provider: providerName,
+        accountLabel: `${providerName.toLowerCase()}-connected`,
+        status: 'healthy' as const,
+        lastSync: new Date().toISOString(),
+      }
+      sourcesStore.add(newSource)
+      addToast(`${providerName} connected successfully`, 'success')
+      navigate('/sources')
       return
     }
 
