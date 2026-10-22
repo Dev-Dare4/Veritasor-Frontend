@@ -8,6 +8,7 @@ import StatusTimeline, {
   TimelineStepStatus 
 } from '../components/StatusTimeline'
 import ProofShareModal from '../components/ProofShareModal'
+import ConfirmDialog from '../components/ConfirmDialog'
 import './AttestationCertificate.print.css'
 import { useAttestations } from '../state/attestations'
 
@@ -364,6 +365,13 @@ export default function AttestationDetail() {
   const [isShareOpen, setIsShareOpen] = useState(false)
   const shareButtonRef = useRef<HTMLButtonElement>(null)
 
+  // Retry-attestation state (local; shared store is out of scope)
+  const [retryDialogOpen, setRetryDialogOpen] = useState(false)
+  const [retryStatus, setRetryStatus] = useState<VerificationStatus | null>(null)
+  const [retryBusy, setRetryBusy] = useState(false)
+  const [retryAnnouncement, setRetryAnnouncement] = useState('')
+  const retryButtonRef = useRef<HTMLButtonElement>(null)
+
   // Reset printed-on timestamp whenever the attestation changes so the footer
   // reflects the most-recent print of the current record.
   useEffect(() => {
@@ -386,6 +394,36 @@ export default function AttestationDetail() {
       shareButtonRef.current?.focus()
     })
   }, [])
+
+  const handleRetryConfirm = useCallback(() => {
+    setRetryBusy(true)
+    setRetryStatus('pending')
+    setRetryAnnouncement('Retry in progress…')
+
+    // Simulate async retry (replace with real API call when backend lands)
+    setTimeout(() => {
+      const outcome: VerificationStatus = 'verified'
+      setRetryStatus(outcome)
+      setRetryBusy(false)
+      setRetryDialogOpen(false)
+      setRetryAnnouncement(
+        outcome === 'verified'
+          ? 'Retry succeeded. Attestation is now verified.'
+          : 'Retry failed. Please try again later.',
+      )
+      requestAnimationFrame(() => {
+        retryButtonRef.current?.focus()
+      })
+    }, 2000)
+  }, [])
+
+  const handleRetryDialogClose = useCallback(() => {
+    if (retryBusy) return
+    setRetryDialogOpen(false)
+    requestAnimationFrame(() => {
+      retryButtonRef.current?.focus()
+    })
+  }, [retryBusy])
 
   // ── Loading / not-found states ──────────────────────────────────────────
   if (!id) {
@@ -418,12 +456,12 @@ export default function AttestationDetail() {
     )
   }
 
-  const status = STATUS_STYLES[attestation.status]
-  const printStatus = PRINT_STATUS[attestation.status]
+  const currentAttestation = { ...attestation, status: retryStatus ?? attestation.status }
+  const status = STATUS_STYLES[currentAttestation.status]
+  const printStatus = PRINT_STATUS[currentAttestation.status]
   const issuedOn = formatDate(attestation.timestamp)
   const formattedTotal = `${attestation.totalRevenue} ${attestation.currency}`
-  const timelineSteps = generateTimelineSteps(attestation)
-  const stellarExplorer = STELLAR_EXPLORER_BASE[environment]
+  const timelineSteps = generateTimelineSteps(currentAttestation)
 
   return (
     <article
@@ -484,16 +522,16 @@ export default function AttestationDetail() {
           type="button"
           onClick={() => setIsShareOpen(true)}
           aria-label={
-            attestation.status === 'verified'
+            currentAttestation.status === 'verified'
               ? 'Share proof'
-              : `Share proof — not available for ${attestation.status} attestations`
+              : `Share proof — not available for ${currentAttestation.status} attestations`
           }
           title={
-            attestation.status === 'verified'
+            currentAttestation.status === 'verified'
               ? 'Share this attestation proof'
-              : `Sharing is only available for verified attestations (current status: ${attestation.status})`
+              : `Sharing is only available for verified attestations (current status: ${currentAttestation.status})`
           }
-          disabled={attestation.status !== 'verified'}
+          disabled={currentAttestation.status !== 'verified'}
           className="no-print"
           style={{
             marginLeft: 'auto',
@@ -506,9 +544,9 @@ export default function AttestationDetail() {
             border: '1px solid var(--border)',
             borderRadius: '0.5rem',
             background: 'var(--surface)',
-            color: attestation.status === 'verified' ? 'var(--text)' : 'var(--muted)',
-            cursor: attestation.status === 'verified' ? 'pointer' : 'not-allowed',
-            opacity: attestation.status === 'verified' ? 1 : 0.5,
+            color: currentAttestation.status === 'verified' ? 'var(--text)' : 'var(--muted)',
+            cursor: currentAttestation.status === 'verified' ? 'pointer' : 'not-allowed',
+            opacity: currentAttestation.status === 'verified' ? 1 : 0.5,
             transition: 'border-color 160ms, background 160ms',
           }}
         >
@@ -607,13 +645,13 @@ export default function AttestationDetail() {
       </section>
 
       {/* ── Failure Banner (screen-only) ───────────────────────────────── */}
-      {attestation.status === 'failed' && (
+      {(attestation.status === 'failed' || retryStatus !== null) && (
         <section
-          aria-labelledby="failure-banner-title"
+          aria-labelledby="retry-banner-title"
           className="no-print"
           style={{
-            background: 'var(--danger-soft)',
-            border: '1px solid var(--danger)',
+            background: currentAttestation.status === 'verified' ? 'var(--success-soft)' : 'var(--danger-soft)',
+            border: `1px solid ${currentAttestation.status === 'verified' ? 'var(--success)' : 'var(--danger)'}`,
             borderRadius: 'var(--radius-sm)',
             padding: '1.25rem',
             marginBottom: '2rem',
@@ -623,36 +661,47 @@ export default function AttestationDetail() {
           }}
         >
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" aria-hidden="true" style={{ marginTop: '0.1rem', flexShrink: 0 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={currentAttestation.status === 'verified' ? 'var(--success)' : 'var(--danger)'} strokeWidth="2" aria-hidden="true" style={{ marginTop: '0.1rem', flexShrink: 0 }}>
               <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
+              {currentAttestation.status === 'verified' ? (
+                <path d="m8 12 2.5 2.5L16 9" />
+              ) : (
+                <>
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </>
+              )}
             </svg>
             <div>
-              <h2 id="failure-banner-title" style={{ margin: '0 0 0.5rem 0', fontSize: '1.05rem', color: 'var(--danger)' }}>
-                Attestation Failed
+              <h2 id="retry-banner-title" style={{ margin: '0 0 0.5rem 0', fontSize: '1.05rem', color: currentAttestation.status === 'verified' ? 'var(--success)' : 'var(--danger)' }}>
+                {currentAttestation.status === 'verified'
+                  ? 'Attestation Retry Complete'
+                  : currentAttestation.status === 'pending'
+                    ? 'Attestation Retry In Progress'
+                    : 'Attestation Failed'}
               </h2>
-              <p style={{ margin: '0 0 0.25rem 0', color: 'var(--text)', fontSize: '0.95rem' }}>
-                <strong>Reason:</strong> {attestation.failureReason || 'Unknown error occurred.'}
-              </p>
-              {attestation.remediation && (
+              {currentAttestation.status !== 'verified' && (
+                <p style={{ margin: '0 0 0.25rem 0', color: 'var(--text)', fontSize: '0.95rem' }}>
+                  <strong>Reason:</strong> {attestation.failureReason || 'Unknown error occurred.'}
+                </p>
+              )}
+              {currentAttestation.status !== 'verified' && attestation.remediation && (
                 <p style={{ margin: 0, color: 'var(--text)', fontSize: '0.95rem' }}>
                   <strong>Suggested Remediation:</strong> {attestation.remediation}{' '}
-                  <a href="/docs/troubleshooting" style={{ color: 'var(--danger)', textDecoration: 'underline', fontWeight: 600 }}>
+                  <Link to="/help" style={{ color: 'var(--danger)', textDecoration: 'underline', fontWeight: 600 }}>
                     Read docs
-                  </a>
+                  </Link>
                 </p>
               )}
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
+              ref={retryButtonRef}
               type="button"
-              onClick={() => {
-                if (window.confirm('Are you sure you want to retry this failed attestation?')) {
-                  alert('Retry initiated.')
-                }
-              }}
+              onClick={() => setRetryDialogOpen(true)}
+              disabled={retryBusy || currentAttestation.status === 'pending'}
+              aria-busy={retryBusy}
               className="no-print"
               style={{
                 background: 'var(--danger)',
@@ -662,15 +711,42 @@ export default function AttestationDetail() {
                 padding: '0.5rem 1rem',
                 fontSize: '0.9rem',
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: retryBusy || currentAttestation.status === 'pending' ? 'not-allowed' : 'pointer',
+                opacity: retryBusy || currentAttestation.status === 'pending' ? 0.7 : 1,
                 transition: 'opacity 0.2s',
               }}
-              onMouseOver={(e) => (e.currentTarget.style.opacity = '0.9')}
-              onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
+              onMouseOver={(e) => { if (!retryBusy && currentAttestation.status !== 'pending') e.currentTarget.style.opacity = '0.9' }}
+              onMouseOut={(e) => { if (!retryBusy && currentAttestation.status !== 'pending') e.currentTarget.style.opacity = '1' }}
             >
-              Retry Attestation
+              {retryBusy || currentAttestation.status === 'pending'
+                ? 'Retrying…'
+                : currentAttestation.status === 'verified'
+                  ? 'Retry Again'
+                  : 'Retry Attestation'}
             </button>
           </div>
+
+          <span
+            role="status"
+            aria-label="Retry status"
+            aria-live="polite"
+            aria-atomic="true"
+            style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap' }}
+          >
+            {retryAnnouncement}
+          </span>
+
+          <ConfirmDialog
+            open={retryDialogOpen}
+            title="Retry Attestation"
+            description="Are you sure you want to retry this failed attestation? The process will resubmit your data for verification."
+            confirmText="Retry"
+            cancelText="Cancel"
+            tone="danger"
+            isLoading={retryBusy}
+            onClose={handleRetryDialogClose}
+            onConfirm={handleRetryConfirm}
+          />
         </section>
       )}
 
@@ -780,7 +856,7 @@ export default function AttestationDetail() {
           {/* Status (grayscale-safe pill — visible in print and screen) */}
           <MetaRow label="Verification Status">
             <span
-              className={`certificate-status certificate-status-${attestation.status}`}
+              className={`certificate-status certificate-status-${currentAttestation.status}`}
               aria-label={printStatus.ariaLabel}
               style={{
                 display: 'inline-flex',
@@ -839,10 +915,10 @@ export default function AttestationDetail() {
       <div className="print-only" aria-hidden="true" />
 
       {/* ── Print-only seal (sits to the right of metadata on print) ────── */}
-      <CertificateSeal status={attestation.status} attestationId={attestation.id} />
+      <CertificateSeal status={currentAttestation.status} attestationId={attestation.id} />
 
       {/* ── Print-only failure notice ──────────────────────────────────── */}
-      {attestation.status === 'failed' && (
+      {currentAttestation.status === 'failed' && (
         <section className="certificate-failure-notice print-only" aria-label="Validation failure notice">
           <h2>Validation Not Completed</h2>
           <p>
