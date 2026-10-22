@@ -8,6 +8,7 @@ describe('useSession', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllTimers();
     vi.useRealTimers();
   });
@@ -17,137 +18,204 @@ describe('useSession', () => {
     warningBeforeMinutes: 2,
   };
 
-  it('initializes with correct state', () => {
+  it('initializes with the configured time and inactive warning state', () => {
     const { result } = renderHook(() => useSession(defaultOptions));
-    
-    expect(result.current.timeLeft).toBe(600); // 10 minutes
+
+    expect(result.current.timeLeft).toBe(600);
     expect(result.current.isExpired).toBe(false);
     expect(result.current.showWarning).toBe(false);
     expect(result.current.isReauthenticating).toBe(false);
   });
 
-  it('shows warning at the correct time', () => {
-    const { result } = renderHook(() => useSession(defaultOptions));
-
-    act(() => {
-      // Fast-forward to just before the warning
-      vi.advanceTimersByTime((10 - 2) * 60 * 1000 - 1);
-    });
-    expect(result.current.showWarning).toBe(false);
-
-    act(() => {
-      // Advance to the warning time
-      vi.advanceTimersByTime(1);
-    });
-    expect(result.current.showWarning).toBe(true);
-    expect(result.current.isExpired).toBe(false);
-  });
-
-  it('expires session at the correct time and calls onSessionExpiry', () => {
+  it('shows warning at duration minus warningBefore and expires once', () => {
     const onSessionExpiry = vi.fn();
-    const { result } = renderHook(() => 
+    const { result } = renderHook(() =>
       useSession({ ...defaultOptions, onSessionExpiry })
     );
 
     act(() => {
-      // Advance to just before expiration
-      vi.advanceTimersByTime(10 * 60 * 1000 - 1);
+      vi.advanceTimersByTime(8 * 60 * 1000 - 1);
     });
-    expect(result.current.isExpired).toBe(false);
-    expect(onSessionExpiry).not.toHaveBeenCalled();
+    expect(result.current.showWarning).toBe(false);
 
     act(() => {
-      // Advance to expiration
       vi.advanceTimersByTime(1);
+    });
+    expect(result.current.showWarning).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(2 * 60 * 1000);
     });
     expect(result.current.isExpired).toBe(true);
     expect(result.current.showWarning).toBe(false);
     expect(onSessionExpiry).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(onSessionExpiry).toHaveBeenCalledTimes(1);
   });
 
-  it('resets session on user activity', () => {
+  it('throttles 1,000 activity events to one reset and keeps one interval', () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const { result } = renderHook(() => useSession(defaultOptions));
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+      for (let i = 0; i < 1000; i += 1) {
+        window.dispatchEvent(new Event('mousemove'));
+        vi.advanceTimersByTime(20);
+      }
+    });
+
+    expect(result.current.timeLeft).toBe(580);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(10 * 60 * 1000 - 20_000);
+    });
+    expect(result.current.isExpired).toBe(true);
+  });
+
+  it('allows one activity reset after the 30-second throttle window', () => {
     const { result } = renderHook(() => useSession(defaultOptions));
 
     act(() => {
       vi.advanceTimersByTime(5 * 60 * 1000);
-    });
-
-    expect(result.current.timeLeft).toBeLessThan(600);
-
-    act(() => {
+      window.dispatchEvent(new Event('mousemove'));
+      vi.advanceTimersByTime(29_999);
       window.dispatchEvent(new Event('mousemove'));
     });
+    expect(result.current.timeLeft).toBe(571);
 
+    act(() => {
+      vi.advanceTimersByTime(1);
+      window.dispatchEvent(new Event('mousemove'));
+    });
     expect(result.current.timeLeft).toBe(600);
-    expect(result.current.isExpired).toBe(false);
-    expect(result.current.showWarning).toBe(false);
   });
 
-  it('does not reset session on user activity if already expired', () => {
+  it('does not count activity while the warning is open; extending resets it', () => {
+    const { result } = renderHook(() => useSession(defaultOptions));
+
+    act(() => {
+      vi.advanceTimersByTime(8 * 60 * 1000);
+    });
+    expect(result.current.showWarning).toBe(true);
+    expect(result.current.timeLeft).toBe(120);
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+      window.dispatchEvent(new Event('mousemove'));
+    });
+    expect(result.current.timeLeft).toBe(115);
+
+    act(() => {
+      result.current.extendSession();
+    });
+    expect(result.current.timeLeft).toBe(600);
+    expect(result.current.showWarning).toBe(false);
+    expect(result.current.isExpired).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(8 * 60 * 1000);
+    });
+    expect(result.current.showWarning).toBe(true);
+  });
+
+  it('does not expire while re-authentication is active and resets on success', () => {
+    const onSessionExpiry = vi.fn();
+    const { result } = renderHook(() =>
+      useSession({ ...defaultOptions, onSessionExpiry })
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(8 * 60 * 1000);
+      result.current.initiateReauth();
+      vi.advanceTimersByTime(2 * 60 * 1000);
+    });
+
+    expect(result.current.isExpired).toBe(false);
+    expect(result.current.showWarning).toBe(false);
+    expect(onSessionExpiry).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.reauthSuccess();
+    });
+    expect(result.current.isReauthenticating).toBe(false);
+    expect(result.current.timeLeft).toBe(600);
+    expect(result.current.isExpired).toBe(false);
+  });
+
+  it('uses the latest expiry callback and does not expire twice', () => {
+    const firstCallback = vi.fn();
+    const latestCallback = vi.fn();
+    const { rerender } = renderHook(
+      ({ onSessionExpiry }) =>
+        useSession({ ...defaultOptions, onSessionExpiry }),
+      { initialProps: { onSessionExpiry: firstCallback } }
+    );
+
+    rerender({ onSessionExpiry: latestCallback });
+    act(() => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+
+    expect(firstCallback).not.toHaveBeenCalled();
+    expect(latestCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reset an expired session on activity', () => {
     const { result } = renderHook(() => useSession(defaultOptions));
 
     act(() => {
       vi.advanceTimersByTime(10 * 60 * 1000);
     });
-
     expect(result.current.isExpired).toBe(true);
 
     act(() => {
       window.dispatchEvent(new Event('mousemove'));
     });
-
     expect(result.current.isExpired).toBe(true);
+    expect(result.current.timeLeft).toBe(0);
   });
 
-  it('extendSession resets the session', () => {
-    const { result } = renderHook(() => useSession(defaultOptions));
+  it('cleans up its interval and supported activity listeners on unmount', () => {
+    const addListener = vi.spyOn(window, 'addEventListener');
+    const removeListener = vi.spyOn(window, 'removeEventListener');
+    const { unmount } = renderHook(() => useSession(defaultOptions));
+    const activityEvents = [
+      'mousedown',
+      'mousemove',
+      'keydown',
+      'scroll',
+      'touchstart',
+      'click',
+    ];
 
-    act(() => {
-      vi.advanceTimersByTime((10 - 2) * 60 * 1000);
-    });
-    expect(result.current.showWarning).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
 
-    act(() => {
-      result.current.extendSession();
-    });
-
-    expect(result.current.timeLeft).toBe(600);
-    expect(result.current.showWarning).toBe(false);
-    expect(result.current.isExpired).toBe(false);
+    for (const event of activityEvents) {
+      expect(addListener).toHaveBeenCalledWith(event, expect.any(Function));
+      expect(removeListener).toHaveBeenCalledWith(event, expect.any(Function));
+    }
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('initiateReauth enters reauthenticating state and hides warning', () => {
-    const { result } = renderHook(() => useSession(defaultOptions));
-
-    act(() => {
-      vi.advanceTimersByTime((10 - 2) * 60 * 1000);
-    });
-    expect(result.current.showWarning).toBe(true);
-
-    act(() => {
-      result.current.initiateReauth();
-    });
-
-    expect(result.current.isReauthenticating).toBe(true);
-    expect(result.current.showWarning).toBe(false);
-  });
-
-  it('reauthSuccess resets session and calls onReauthSuccess', () => {
-    const onReauthSuccess = vi.fn();
-    const { result } = renderHook(() => 
-      useSession({ ...defaultOptions, onReauthSuccess })
+  it('resets its deadline when duration configuration changes', () => {
+    const { result, rerender } = renderHook(
+      ({ sessionDurationMinutes }) =>
+        useSession({ ...defaultOptions, sessionDurationMinutes }),
+      { initialProps: { sessionDurationMinutes: 10 } }
     );
 
     act(() => {
-      result.current.initiateReauth();
+      vi.advanceTimersByTime(60_000);
     });
-
-    act(() => {
-      result.current.reauthSuccess();
-    });
-
-    expect(result.current.isReauthenticating).toBe(false);
-    expect(result.current.timeLeft).toBe(600);
-    expect(onReauthSuccess).toHaveBeenCalledTimes(1);
+    rerender({ sessionDurationMinutes: 5 });
+    expect(result.current.timeLeft).toBe(300);
+    expect(result.current.showWarning).toBe(false);
   });
 });

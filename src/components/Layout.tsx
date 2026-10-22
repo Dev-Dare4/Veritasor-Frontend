@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import TopAppBar from "./TopAppBar";
 import BottomTabBar from "./BottomTabBar";
 import { ToastProvider } from "./ToastContext";
@@ -8,35 +8,27 @@ import { BillingProvider, useBilling } from "./BillingContext";
 import ToastContainer from "./ToastContainer";
 import ShortcutsOverlay from "./ShortcutsOverlay";
 import ContextualHelpSearch from "./ContextualHelpSearch";
-import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useSession } from "../hooks/useSession";
+import { SessionExpiryWarning } from "./SessionExpiryWarning";
+import { ReauthModal } from "./ReauthModal";
 
-// ---------------------------------------------------------------------------
-// Route title map
-// ---------------------------------------------------------------------------
+const configuredSessionDuration = Number(
+  import.meta.env.VITE_SESSION_DURATION_MINUTES
+);
+const SESSION_DURATION_MINUTES =
+  Number.isFinite(configuredSessionDuration) && configuredSessionDuration > 0
+    ? configuredSessionDuration
+    : 30;
 
-const ROUTE_TITLES: Record<string, string> = {
-  '/dashboard': 'Dashboard',
-  '/attestations': 'Attestations',
-  '/sources': 'Revenue Sources',
-  '/api-keys': 'API Keys',
-  '/help': 'Help',
-  '/settings': 'Settings',
-  '/consent-preferences': 'Cookie Preferences',
-}
-
-function getPageTitle(pathname: string): string {
-  const label = ROUTE_TITLES[pathname] ?? 'Veritasor'
-  return label === 'Veritasor' ? 'Veritasor — Revenue Attestations' : `${label} — Veritasor`
-}
-
-function focusHamburger() {
-  const btn = document.querySelector<HTMLButtonElement>('[aria-controls="app-sidebar"]')
-  btn?.focus()
-}
-
-// ---------------------------------------------------------------------------
-// BillingBannerSlot
-// ---------------------------------------------------------------------------
+const configuredWarningBefore = Number(
+  import.meta.env.VITE_SESSION_WARNING_BEFORE_MINUTES
+);
+const WARNING_BEFORE_MINUTES =
+  Number.isFinite(configuredWarningBefore) &&
+  configuredWarningBefore > 0 &&
+  configuredWarningBefore < SESSION_DURATION_MINUTES
+    ? configuredWarningBefore
+    : Math.min(5, SESSION_DURATION_MINUTES / 2);
 
 function BillingBannerSlot() {
   const { failedPayment, dismissFailedPayment } = useBilling();
@@ -74,11 +66,40 @@ function BillingBannerSlot() {
 
 function LayoutInner() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [reauthError, setReauthError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [helpSearchOpen, setHelpSearchOpen] = useState(false);
-  const mainRef = useRef<HTMLElement | null>(null);
-  const prevPathRef = useRef(location.pathname);
+  const [openWsSwitcherInSearchMode, setOpenWsSwitcherInSearchMode] = useState(false);
+  const handleSessionExpiry = useCallback(() => {
+    navigate("/login", {
+      replace: true,
+      state: { from: location },
+    });
+  }, [location, navigate]);
+  const session = useSession({
+    sessionDurationMinutes: SESSION_DURATION_MINUTES,
+    warningBeforeMinutes: WARNING_BEFORE_MINUTES,
+    onSessionExpiry: handleSessionExpiry,
+  });
+
+  const handleReauthSubmit = useCallback(() => {
+    setReauthError(
+      "Re-authentication is unavailable here. Please sign in again."
+    );
+  }, []);
+  const handleReauthClose = useCallback(() => {
+    navigate("/login", {
+      replace: true,
+      state: { from: location },
+    });
+  }, [location, navigate]);
+
+  /**
+   * Sequential key chord tracker for multi-key shortcuts.
+   * Tracks the last key pressed so we can detect Ctrl+K → W.
+   */
   const lastKeyRef = useRef<{ key: string; ctrlOrMeta: boolean } | null>(null);
   const chordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -176,6 +197,21 @@ function LayoutInner() {
       <ToastContainer />
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <ContextualHelpSearch open={helpSearchOpen} onClose={() => setHelpSearchOpen(false)} />
+      <SessionExpiryWarning
+        isOpen={session.showWarning}
+        timeLeft={session.timeLeft}
+        onExtendSession={session.extendSession}
+        onReauth={() => {
+          setReauthError(null);
+          session.initiateReauth();
+        }}
+      />
+      <ReauthModal
+        isOpen={session.isReauthenticating}
+        error={reauthError}
+        onSuccess={handleReauthSubmit}
+        onClose={handleReauthClose}
+      />
     </div>
   );
 }
