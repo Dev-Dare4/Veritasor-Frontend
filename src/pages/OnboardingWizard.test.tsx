@@ -144,4 +144,96 @@ describe('OnboardingWizard', () => {
     // Success Screen
     expect(await screen.findByRole('heading', { name: 'Verification in progress' })).toBeInTheDocument()
   })
+
+  describe('auto-persist frame batching and flushing', () => {
+    it('persists all fields when multiple fields change in the same animation frame (browser autofill)', () => {
+      let rafCallback: FrameRequestCallback | null = null;
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        rafCallback = cb;
+        return 123;
+      });
+
+      render(
+        <MemoryRouter>
+          <OnboardingWizard />
+        </MemoryRouter>
+      );
+
+      const legalNameInput = screen.getByLabelText(/legal business name/i);
+      const regNumberInput = screen.getByLabelText(/registration number/i);
+      const countryInput = screen.getByLabelText(/country of incorporation/i);
+
+      fireEvent.input(legalNameInput, { target: { id: 'ob-legal-name', value: 'Alpha Corp' } });
+      fireEvent.input(regNumberInput, { target: { id: 'ob-reg-number', value: 'REG-999' } });
+      fireEvent.input(countryInput, { target: { id: 'ob-country', value: 'Estonia' } });
+
+      // Before rAF runs, nothing is flushed yet
+      const draftBefore = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
+      expect(draftBefore.business?.legalName).toBeFalsy();
+
+      // Execute the animation frame callback
+      expect(rafCallback).toBeTypeOf('function');
+      rafCallback!(performance.now());
+
+      const draftAfter = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
+      expect(draftAfter.business?.legalName).toBe('Alpha Corp');
+      expect(draftAfter.business?.registrationNumber).toBe('REG-999');
+      expect(draftAfter.business?.country).toBe('Estonia');
+    });
+
+    it('flushes pending updates synchronously on unmount instead of cancelling them', () => {
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 456);
+
+      const { unmount } = render(
+        <MemoryRouter>
+          <OnboardingWizard />
+        </MemoryRouter>
+      );
+
+      const legalNameInput = screen.getByLabelText(/legal business name/i);
+      fireEvent.input(legalNameInput, { target: { id: 'ob-legal-name', value: 'Unmount Corp' } });
+
+      unmount();
+
+      const saved = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
+      expect(saved.business?.legalName).toBe('Unmount Corp');
+    });
+
+    it('flushes pending updates synchronously on pagehide', () => {
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 789);
+
+      render(
+        <MemoryRouter>
+          <OnboardingWizard />
+        </MemoryRouter>
+      );
+
+      const legalNameInput = screen.getByLabelText(/legal business name/i);
+      fireEvent.input(legalNameInput, { target: { id: 'ob-legal-name', value: 'Pagehide Corp' } });
+
+      window.dispatchEvent(new Event('pagehide'));
+
+      const saved = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
+      expect(saved.business?.legalName).toBe('Pagehide Corp');
+    });
+
+    it('flushes pending updates synchronously on visibilitychange to hidden', () => {
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 999);
+
+      render(
+        <MemoryRouter>
+          <OnboardingWizard />
+        </MemoryRouter>
+      );
+
+      const regNumberInput = screen.getByLabelText(/registration number/i);
+      fireEvent.input(regNumberInput, { target: { id: 'ob-reg-number', value: 'REG-VIS-123' } });
+
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      const saved = JSON.parse(localStorage.getItem('veritasor_onboarding_draft') || '{}');
+      expect(saved.business?.registrationNumber).toBe('REG-VIS-123');
+    });
+  });
 })

@@ -32,24 +32,49 @@ export default function OnboardingWizard() {
   const cardRef = useRef<HTMLDivElement | null>(null)
   const [actionsEl, setActionsEl] = useState<HTMLElement | null>(null)
   const rafIdRef = useRef<number | null>(null)
-  const pendingUpdaterRef = useRef<((prev: OnboardingDraft) => OnboardingDraft) | null>(null)
+  const pendingUpdatersRef = useRef<Array<(prev: OnboardingDraft) => OnboardingDraft>>([])
 
   const step = draft.step
 
+  const flushDraftUpdates = () => {
+    if (rafIdRef.current != null) {
+      window.cancelAnimationFrame(rafIdRef.current)
+      rafIdRef.current = null
+    }
+    if (pendingUpdatersRef.current.length > 0) {
+      const updaters = pendingUpdatersRef.current
+      pendingUpdatersRef.current = []
+      setDraft(prev => updaters.reduce((acc, fn) => fn(acc), prev))
+    }
+  }
+
   function scheduleDraftUpdate(updater: (prev: OnboardingDraft) => OnboardingDraft) {
-    pendingUpdaterRef.current = updater
+    pendingUpdatersRef.current.push(updater)
     if (rafIdRef.current != null) return
     rafIdRef.current = window.requestAnimationFrame(() => {
-      const nextUpdater = pendingUpdaterRef.current
-      pendingUpdaterRef.current = null
       rafIdRef.current = null
-      if (nextUpdater) setDraft(nextUpdater)
+      flushDraftUpdates()
     })
   }
 
   useEffect(() => {
+    const handleFlush = () => {
+      flushDraftUpdates()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushDraftUpdates()
+      }
+    }
+
+    window.addEventListener('pagehide', handleFlush)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
-      if (rafIdRef.current != null) window.cancelAnimationFrame(rafIdRef.current)
+      window.removeEventListener('pagehide', handleFlush)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      flushDraftUpdates()
     }
   }, [])
 
