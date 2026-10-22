@@ -1,6 +1,6 @@
 /**
  * Focused behavior coverage for the Login route state machine
- * (`src/pages/Login.tsx`).
+ * (`src/pages/Login.tsx` ).
  *
  * `Login` is a three-state router with an optional recovery deep link:
  *
@@ -23,7 +23,7 @@
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import type { ReactElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import Login from './Login'
 import { ToastProvider } from '../components/ToastContext'
 import { SUBMIT_DEMO_MS } from '../components/SubmitButton'
@@ -242,6 +242,72 @@ describe('Login route state machine', () => {
       unmount()
 
       expect(clearSpy.mock.calls.length).toBeGreaterThan(callsAfterSubmit)
+    })
+  })
+
+  describe('MFA challenge', () => {
+    function codeField() {
+      return screen.getLabelText(/^code/i)
+    }
+
+    function verifyButton() {
+      return screen.getButton(/verify/i)
+    }
+
+    it('rejects non-numeric TOTP codes and announces the inline error', () => {
+      renderLogin('/login?state=mfa')
+
+      fireEvent.change(codeField(), { target: { value: 'abcdef' } })
+
+      expect(verifyButton()).toBeDisabled()
+
+      fireEvent.submit(verifyButton().closest('form')!)
+
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent(/6-digit/i)
+      expect(codeField()).toHaveAttribute('aria-invalid', 'true')
+      expect(codeField()).toHaveAttribute('aria-describedby', alert.id)
+    })
+
+    it('submits exactly once on rapid double submit', () => {
+      renderLogin('/login?state=mfa')
+
+      fireEvent.change(codeField(), { target: { value: '123456' } })
+
+      const form = verifyButton().closest('form')!
+      fireEvent.submit(form)
+      fireEvent.submit(form)
+
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+
+      expect(screen.getByText(/second factor verified/i)).toBeInTheDocument()
+    })
+
+    it('renders the recovery code input with inputMode=text', () => {
+      renderLogin('/login?state=mfa')
+
+      fireEvent.click(screen.getLabelText(/recovery code/i))
+
+      expect(codeField()).toHaveAttribute('inputmode', 'text')
+      expect(codeField()).toHaveAttribute('autocapitalize', 'characters')
+    })
+
+    it('clears the verification timer on unmount without a state update warning', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const { unmount } = renderLogin('/login?state=mfa')
+
+      fireEvent.change(codeField(), { target: { value: '123456' } })
+      fireEvent.submit(verifyButton().closest('form')!)
+
+      unmount()
+
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+
+      expect(consoleError).not.toHaveBeenCalled()
     })
   })
 

@@ -292,18 +292,41 @@ function MfaChallengeState({
   const [showFallbackSelector, setShowFallbackSelector] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
+  const [codeError, setCodeError] = useState<string | null>(null);
 
   const codeId = useId();
   const errorId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const verifyTimerRef = useRef<number | null>(null);
+  const keyTimerRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
 
   const activeMethod = getMethodDefinition(activeMethodId);
   const isKeyMethod = activeMethodId === "security-key";
   const codeLengthExpected = activeMethodId === "recovery" ? 14 : 6;
   const sanitizedCode = code.replace(/\s/g, "");
 
-  const codeValidLength = sanitizedCode.length === codeLengthExpected;
-  const submitDisabled = isSubmitting || isKeyMethod ? false : !codeValidLength;
+  const isRecoveryMethod = activeMethodId === "recovery";
+  const RECOVERY_CODE_PATTERN = /^[A-Z0-9]{4}-?[A-Z0-9]{4}-?[A-Z0-9]{4}$/;
+  const codeValidLength = isRecoveryMethod
+    ? RECOVERY_CODE_PATTERN.test(sanitizedCode.toUpperCase())
+    : /^\d{6}$/.test(sanitizedCode);
+  const submitDisabled = isSubmitting || (isKeyMethod ? false : !codeValidLength);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (verifyTimerRef.current !== null) {
+        window.clearTimeout(verifyTimerRef.current);
+        verifyTimerRef.current = null;
+      }
+      if (keyTimerRef.current !== null) {
+        window.clearTimeout(keyTimerRef.current);
+        keyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Focus the input on mount / method change (non-key methods)
   useEffect(() => {
@@ -335,7 +358,10 @@ function MfaChallengeState({
     if (submitDisabled) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    setCodeError(null);
+    verifyTimerRef.current = window.setTimeout(() => {
+      verifyTimerRef.current = null;
+      if (!isMountedRef.current) return;
       setIsSubmitting(false);
       addToast("Second factor verified. Redirecting…", "success");
       onSuccess();
@@ -352,6 +378,7 @@ function MfaChallengeState({
     setActiveMethodId(id);
     setShowFallbackSelector(false);
     setCode("");
+    setCodeError(null);
   };
 
   const maskEmail = (e: string) => {
@@ -480,7 +507,9 @@ function MfaChallengeState({
               type="button"
               onClick={() => {
                 setIsSubmitting(true);
-                setTimeout(() => {
+                keyTimerRef.current = window.setTimeout(() => {
+                  keyTimerRef.current = null;
+                  if (!isMountedRef.current) return;
                   setIsSubmitting(false);
                   addToast("Security key verified.", "success");
                   onSuccess();
@@ -550,19 +579,35 @@ function MfaChallengeState({
             <input
               ref={inputRef}
               id={codeId}
-              className="auth-input"
+              className={
+                "auth-input" + (codeError ? " auth-input-error" : "")
+              }
               type={activeMethodId === "recovery" ? "text" : "text"}
-              inputMode="numeric"
+              inputMode={isRecoveryMethod ? "text" : "numeric"}
+              autoCapitalize={
+                isRecoveryMethod ? "characters" : undefined
+              }
+              autoCorrect={isRecoveryMethod ? "off" : undefined}
+              spellCheck={isRecoveryMethod ? false : undefined}
               autoComplete="one-time-code"
               placeholder={activeMethod.inputPlaceholder}
               aria-label={activeMethod.inputAriaLabel}
+              aria-invalid={codeError ? "true" : undefined}
               aria-describedby={
-                activeMethodId === "sms" && resendCountdown > 0
-                  ? "mfa-resend-status"
-                  : undefined
+                [
+                  codeError ? errorId : null,
+                  activeMethodId === "sms" && resendCountdown > 0
+                    ? "mfa-resend-status"
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
               }
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => {
+                setCode(e.target.value);
+                if (codeError) setCodeError(null);
+              }}
               style={{
                 fontFamily:
                   activeMethodId === "recovery"
@@ -578,6 +623,19 @@ function MfaChallengeState({
               }
               disabled={isSubmitting}
             />
+
+            {codeError && (
+              <p
+                id={errorId}
+                className="auth-message auth-message-error"
+                role="alert"
+              >
+                <span aria-hidden="true" className="auth-message-icon">
+                  !
+                </span>
+                {codeError}
+              </p>
+            )}
 
             {activeMethodId === "sms" && resendCountdown > 0 && (
               <p
