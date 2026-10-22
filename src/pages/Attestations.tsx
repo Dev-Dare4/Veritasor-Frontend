@@ -1,21 +1,17 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import TriggerAttestationFAB from '../components/TriggerAttestationFAB'
-import AttestationConfirmModal, { AttestationDetails, FeeInfo } from '../components/AttestationConfirmModal'
+import AttestationConfirmModal, { type FeeInfo } from '../components/AttestationConfirmModal'
 import { AttestationCalendar } from '../components/scheduling/AttestationCalendar'
+import { useToast } from '../components/ToastContext'
+import { useAttestations, type Attestation } from '../state/attestations'
+import { DEFAULT_TRIGGER_DETAILS } from '../state/attestationMocks'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-type AttestationStatus = "pending" | "verified" | "failed";
-
-type AttestationListItem = {
-  id: string
-  status: AttestationStatus
-  createdAt: string // ISO 8601
-  merkleRoot: string
-}
+type AttestationStatus = Attestation['status']
+type AttestationListItem = Pick<Attestation, 'id' | 'status' | 'createdAt' | 'merkleRoot'>
 
 type AttestationStatusMeta = {
   label: string
@@ -206,7 +202,7 @@ function StatusBadge({ status }: { status: AttestationStatus }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onRunReport }: { onRunReport: () => void }) {
   return (
     <section
       aria-label="Attestations empty state"
@@ -235,8 +231,9 @@ function EmptyState() {
             marginTop: '0.5rem',
           }}
         >
-          <Link
-            to="/"
+          <button
+            type="button"
+            onClick={onRunReport}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -247,12 +244,12 @@ function EmptyState() {
               color: "#04111f",
               background: "linear-gradient(135deg, var(--accent), #60a5fa)",
               border: "1px solid transparent",
-              textDecoration: "none",
               minHeight: "3rem",
+              cursor: 'pointer',
             }}
           >
             Run a revenue report
-          </Link>
+          </button>
           <div
             style={{
               flex: "1 1 260px",
@@ -565,21 +562,8 @@ export default function Attestations() {
   const [modalOpen, setModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const attestations: AttestationListItem[] = [
-    {
-      id: 'att-001',
-      status: 'verified',
-      createdAt: '2026-05-28T14:32:00Z',
-      merkleRoot: '0x3a7bd3e2360a3d29eea436fcfb7e44c735d117c9f4e4b5e6a1c2d3e4f5a6b7c8',
-    },
-    {
-      id: 'att-002',
-      status: 'pending',
-      createdAt: '2026-05-15T09:10:00Z',
-      merkleRoot: '0x9f8e7d6c5b4a3928170605040302010f0e0d0c0b0a090807060504030201000f',
-    },
-  ]
+  const { list: attestations, trigger } = useAttestations()
+  const { addToast } = useToast()
 
   // Mock scheduled runs for calendar indicators.
   const scheduledDates = [
@@ -588,13 +572,6 @@ export default function Attestations() {
   ]
 
   // Mock attestation details (would come from API in real app)
-  const mockDetails: AttestationDetails = {
-    source: 'Stripe Connect API',
-    period: 'May 2026',
-    recordCount: 15420,
-    merkleRoot: '0x3a7bd3e2360a3d29eea436fcfb7e44c735d117c9f4e4b5e6a1c2d3e4f5a6b7c8',
-  }
-
   const mockFeeInfo: FeeInfo = {
     total: 2.5,
     breakdown: [
@@ -611,6 +588,7 @@ export default function Attestations() {
   function handleCloseModal() {
     setModalOpen(false)
     setIsLoading(false)
+    setError(null)
   }
 
   async function handleConfirmAttestation() {
@@ -618,15 +596,12 @@ export default function Attestations() {
     setError(null)
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-
-      // Mock success
-      console.log('Attestation confirmed and published')
+      await trigger(DEFAULT_TRIGGER_DETAILS)
+      addToast('Attestation submitted successfully.', 'success')
       setModalOpen(false)
-      setIsLoading(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to process attestation')
+    } finally {
       setIsLoading(false)
     }
   }
@@ -655,7 +630,7 @@ export default function Attestations() {
 
         <section aria-label="Attestation runs" style={{ marginTop: '1.5rem' }}>
           {attestations.length === 0 ? (
-            <EmptyState />
+            <EmptyState onRunReport={handleOpenModal} />
           ) : (
             <ol style={{ margin: 0, padding: 0 }}>
               {attestations.map((item) => (
@@ -679,7 +654,7 @@ export default function Attestations() {
         onConfirm={handleConfirmAttestation}
         isLoading={isLoading}
         error={error}
-        details={mockDetails}
+        details={DEFAULT_TRIGGER_DETAILS}
         feeInfo={mockFeeInfo}
       />
     </>

@@ -2,12 +2,18 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Attestations from './Attestations'
+import { ToastProvider } from '../components/ToastContext'
+import { AttestationsProvider } from '../state/attestations'
 
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <Attestations />
-    </MemoryRouter>,
+    <AttestationsProvider>
+      <ToastProvider>
+        <MemoryRouter>
+          <Attestations />
+        </MemoryRouter>
+      </ToastProvider>
+    </AttestationsProvider>,
   )
 }
 

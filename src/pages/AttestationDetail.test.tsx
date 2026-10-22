@@ -2,15 +2,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import AttestationDetail from './AttestationDetail'
+import { AttestationsProvider } from '../state/attestations'
 
 function renderDetail(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/attestations" element={<AttestationDetail />} />
-        <Route path="/attestations/:id" element={<AttestationDetail />} />
-      </Routes>
-    </MemoryRouter>,
+    <AttestationsProvider>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/attestations" element={<AttestationDetail />} />
+          <Route path="/attestations/:id" element={<AttestationDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </AttestationsProvider>,
   )
 }
 

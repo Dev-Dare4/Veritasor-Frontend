@@ -3,6 +3,7 @@ import { LocaleProvider } from './i18n/provider'
 import { ToastProvider } from './components/ToastContext'
 import Layout from './components/Layout'
 import { CookieConsentProvider } from './components/CookieConsentContext'
+import { AttestationsProvider } from './state/attestations'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -70,9 +71,39 @@ export default function App() {
   return (
     <LocaleProvider>
       <ToastProvider>
-      <CookieConsentProvider>
-        <RouterProvider router={router} future={{ v7_startTransition: true }} />
-      </CookieConsentProvider>
+        <AttestationsProvider>
+          <CookieConsentProvider>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <Routes>
+                <Route path="/" element={<Landing />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/onboarding" element={<OnboardingWizard />} />
+                <Route path="/500" element={<ServerError />} />
+                <Route element={<Layout />}>
+                  <Route path="dashboard" element={<Dashboard />} />
+                  <Route path="attestations" element={<Attestations />} />
+                  <Route path="attestations/:id" element={<AttestationDetail />} />
+                  <Route path="sources" element={<RevenueSources />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="api-keys" element={<ApiKeys />} />
+                  <Route path="help" element={<HelpArticle />} />
+                  <Route path="consent-preferences" element={<ConsentPreferences />} />
+                  <Route path="connect-source" element={<ConnectSourceWizard />}>
+                    <Route path="provider" element={<SelectSourceProviderStep />} />
+                    <Route path="authorize" element={<AuthorizeSourceStep />} />
+                    <Route path="callback" element={<OAuthCallbackLandingStep />} />
+                    <Route path="scope" element={<ConfigureSourceScopeStep />} />
+                    <Route path="mapping" element={<MapCurrenciesStep />} />
+                    <Route path="confirm" element={<ConfirmSourceStep />} />
+                  </Route>
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </CookieConsentProvider>
+        </AttestationsProvider>
     </ToastProvider>
     </LocaleProvider>
   )
