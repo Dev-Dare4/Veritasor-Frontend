@@ -76,9 +76,12 @@ export default function ProofShareModal({ isOpen, onClose, attestationId }: Proo
       addToast('Please enter a stronger password.', 'error')
       return
     }
-    
-    // Mock link generation
-    const link = `https://veritasor.com/proof/${attestationId}?share=${Math.random().toString(36).substring(7)}`
+
+    // Deterministic demo URL derived solely from the attestation ID
+    const params = new URLSearchParams({ share: attestationId })
+    if (expiry !== 'none') params.set('expires', expiry)
+    if (permission === 'password') params.set('protected', '1')
+    const link = `https://veritasor.app/proof/${attestationId}?${params.toString()}`
     setGeneratedLink(link)
     addToast('Link generated successfully.', 'success')
   }
@@ -94,7 +97,8 @@ export default function ProofShareModal({ isOpen, onClose, attestationId }: Proo
   }
 
   return (
-    <div 
+    <div
+      className="no-print"
       style={{
         position: 'fixed',
         inset: 0,
