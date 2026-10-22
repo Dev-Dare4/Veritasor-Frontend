@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useIntl } from "react-intl";
 import LocalePicker from "./LocalePicker/LocalePicker";
+import { useEnvironment } from "../context/EnvironmentContext";
 
 export interface WorkspaceMetadata {
   id: string;
@@ -91,9 +92,6 @@ export default function TopAppBar({
   ]);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceSearch, setWorkspaceSearch] = useState("");
-  const [environment, setEnvironment] = useState<"testnet" | "mainnet">(
-    initialEnvironment,
-  );
   const [accountOpen, setAccountOpen] = useState(false);
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const [createWsDraft, setCreateWsDraft] = useState<CreateWorkspaceDraft>(() =>
@@ -102,6 +100,9 @@ export default function TopAppBar({
   const [createWsSubmitting, setCreateWsSubmitting] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const intl = useIntl();
+  const { environment, setEnvironment } = useEnvironment();
+  const [confirmMainnetOpen, setConfirmMainnetOpen] = useState(false);
+  const confirmMainnetTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const currentWorkspace = useMemo(
     () => workspaces.find((ws) => ws.id === workspaceId) || workspaces[0] || DEFAULT_WORKSPACES[0],
@@ -843,18 +844,43 @@ export default function TopAppBar({
 
         <div className="app-bar-actions">
           <button
+            ref={confirmMainnetTriggerRef}
             type="button"
             className={`env-badge env-badge-${environment}`}
             aria-label={`Environment: ${environment}. Toggle environment`}
-            onClick={() =>
-              setEnvironment((env) =>
-                env === "testnet" ? "mainnet" : "testnet",
-              )
-            }
+            onClick={() => {
+              if (environment === "testnet") {
+                setConfirmMainnetOpen(true);
+              } else {
+                setEnvironment("testnet");
+                setAnnouncement("Switched to testnet environment");
+                setTimeout(() => setAnnouncement(""), 1000);
+              }
+            }}
           >
             <span aria-hidden="true" className="env-dot" />
             {environment}
           </button>
+
+          {confirmMainnetOpen && (
+            <ConfirmDialog
+              title="Switch to mainnet?"
+              message="Actions you take will publish attestations to the live Stellar mainnet network. This cannot be undone."
+              confirmLabel="Switch to mainnet"
+              cancelLabel="Cancel"
+              onConfirm={() => {
+                setEnvironment("mainnet");
+                setConfirmMainnetOpen(false);
+                setAnnouncement("Switched to mainnet environment");
+                setTimeout(() => setAnnouncement(""), 1000);
+                confirmMainnetTriggerRef.current?.focus();
+              }}
+              onCancel={() => {
+                setConfirmMainnetOpen(false);
+                confirmMainnetTriggerRef.current?.focus();
+              }}
+            />
+          )}
 
           <div style={{ position: "relative" }}>
             <button

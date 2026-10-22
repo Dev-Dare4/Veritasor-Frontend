@@ -596,7 +596,7 @@ describe('TopAppBar - Account Switcher', () => {
   })
 
   describe('TopAppBar - Environment Toggle', () => {
-    it('defaults to testnet and toggles to mainnet on click', () => {
+    it('defaults to testnet and opens a confirmation when switching to mainnet', () => {
       renderWithProvider(
         <TopAppBar
           workspaces={mockWorkspaces}
@@ -608,10 +608,12 @@ describe('TopAppBar - Account Switcher', () => {
       expect(envBadge).toHaveTextContent('testnet')
 
       fireEvent.click(envBadge)
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
       expect(screen.getByRole('button', { name: /environment: mainnet/i })).toHaveTextContent('mainnet')
     })
 
-    it('toggles back to testnet on a second click', () => {
+    it('keeps testnet when the confirmation is cancelled', () => {
       renderWithProvider(
         <TopAppBar
           workspaces={mockWorkspaces}
@@ -621,12 +623,12 @@ describe('TopAppBar - Account Switcher', () => {
 
       const envBadge = screen.getByRole('button', { name: /environment: testnet/i })
       fireEvent.click(envBadge)
-      fireEvent.click(screen.getByRole('button', { name: /environment: mainnet/i }))
+      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
 
       expect(screen.getByRole('button', { name: /environment: testnet/i })).toHaveTextContent('testnet')
     })
 
-    it('respects the initialEnvironment prop', () => {
+    it('switches back to testnet without confirmation', () => {
       renderWithProvider(
         <TopAppBar
           workspaces={mockWorkspaces}
@@ -635,7 +637,9 @@ describe('TopAppBar - Account Switcher', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /environment: mainnet/i })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /environment: mainnet/i }))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /environment: testnet/i })).toBeInTheDocument()
     })
   })
 
