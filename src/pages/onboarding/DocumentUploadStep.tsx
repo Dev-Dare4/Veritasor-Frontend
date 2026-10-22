@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DocumentUpload } from '../../hooks/useOnboardingDraft'
+import { useObjectUrl } from '../../hooks/useObjectUrl'
 
 // ─── Public types ──────────────────────────────────────────────────────────────
 
@@ -225,10 +226,11 @@ function IdCaptureCard({ fieldKey, label, hint, capturedFile, onCapture, onRetak
     startCamera()
   }, [onRetake, startCamera])
 
+  const isImage = capturedFile?.type.startsWith('image/') ?? false
+  const previewUrl = useObjectUrl(isImage ? capturedFile : null)
+
   // ── Preview state ──────────────────────────────────────────────────────────
   if (capturedFile) {
-    const isImage = capturedFile.type.startsWith('image/')
-    const previewUrl = isImage ? URL.createObjectURL(capturedFile) : null
     return (
       <div className="idc-preview" role="region" aria-label={`${label} preview`}>
         {previewUrl ? (

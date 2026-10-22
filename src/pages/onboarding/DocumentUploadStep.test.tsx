@@ -327,6 +327,48 @@ describe('DocumentUploadStep — camera fallback and ID progress', () => {
     expect(await screen.findByLabel('scan.pdf')).toBeInTheDocument()
     expect(screen.queryByAltText('Preview of Government-issued ID — front')).not.toBeInTheDocument()
   })
+
+  it('calls URL.createObjectURL once across multiple re-renders and revokes on retake and unmount', async () => {
+    const createSpy = vi.spyOn(URL, 'createObjectURL')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    const { rerender, unmount } = renderStep()
+    await waitFor(() => expect(document.getElementById('idc-file-govIdFront')).toBeTruthy())
+
+    const frontFile = jpg('front.jpg')
+    uploadCamera('govIdFront', [frontFile])
+
+    expect(await screen.findByAltText('Preview of Government-issued ID — front')).toBeInTheDocument()
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    // Re-render 5 times to simulate parent/draft updates or unrelated typing/lighting changes
+    for (let i = 0; i < 5; i++) {
+      rerender(
+        <DocumentUploadStep
+          data={{ ...emptyDocuments }}
+          onBack={vi.fn()}
+          onNext={vi.fn()}
+        />,
+      )
+    }
+
+    // URL.createObjectURL should NOT be re-called on re-renders
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    // Retake should revoke the URL
+    fireEvent.click(screen.getByLabelText('Re-take Government-issued ID — front'))
+    await waitFor(() => expect(revokeSpy).toHaveBeenCalledTimes(1))
+
+    // Unmount after another capture should also revoke
+    uploadCamera('govIdFront', [frontFile])
+    expect(await screen.findByAltText('Preview of Government-issued ID — front')).toBeInTheDocument()
+    expect(createSpy).toHaveBeenCalledTimes(2)
+
+    unmount()
+    expect(revokeSpy).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('DocumentUploadStep — submit validation', () => {
