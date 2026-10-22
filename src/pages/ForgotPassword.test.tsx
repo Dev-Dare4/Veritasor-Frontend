@@ -138,6 +138,20 @@ describe('ForgotPassword Page', () => {
       expect(screen.getByRole('heading', { name: /Set new password/i })).toBeInTheDocument()
     })
 
+    it('rejects a password that fails the shared policy', async () => {
+      const user = userEvent.setup()
+      renderPage(['/forgot-password?state=reset&token=valid-token'])
+
+      await user.type(screen.getByLabelText(/New password/i), 'abcdefg1')
+      await user.type(screen.getByLabelText(/Confirm password/i), 'abcdefg1')
+      await user.click(screen.getByRole('button', { name: /Set new password/i }))
+
+      expect(screen.getByRole('heading', { name: /Set new password/i })).toBeInTheDocument()
+      expect(screen.getByText(/Use at least 12 characters/i)).toBeInTheDocument()
+      expect(screen.getByText(/Include an uppercase letter/i)).toBeInTheDocument()
+      expect(screen.getByText(/Include a symbol/i)).toBeInTheDocument()
+    })
+
     it('navigates to login on successful password reset', async () => {
       const user = userEvent.setup()
       renderPage(['/forgot-password?state=reset&token=valid-token'])

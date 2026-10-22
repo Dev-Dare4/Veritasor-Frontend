@@ -369,6 +369,30 @@ describe('Settings — panel content', () => {
     expect(screen.getByLabelText(/current password/i)).toBeInTheDocument()
   })
 
+  it('requires a compliant new password and matching confirmation', () => {
+    renderSettings('#security')
+    const newPassword = screen.getByLabelText(/^new password$/i)
+    const confirmation = screen.getByLabelText(/confirm new password/i)
+    const submit = screen.getByRole('button', { name: /update password/i })
+
+    expect(newPassword).toHaveAttribute('autocomplete', 'new-password')
+    expect(confirmation).toHaveAttribute('autocomplete', 'new-password')
+    expect(submit).toBeDisabled()
+
+    fireEvent.change(newPassword, { target: { value: 'abcdefg1' } })
+    fireEvent.change(confirmation, { target: { value: 'abcdefg1' } })
+    expect(submit).toBeDisabled()
+    expect(screen.getByText(/Use at least 12 characters/i)).toBeInTheDocument()
+
+    fireEvent.change(newPassword, { target: { value: 'Abcdefgh12!x' } })
+    fireEvent.change(confirmation, { target: { value: 'Abcdefgh12!y' } })
+    expect(submit).toBeDisabled()
+    expect(screen.getByText(/Passwords do not match/i)).toBeInTheDocument()
+
+    fireEvent.change(confirmation, { target: { value: 'Abcdefgh12!x' } })
+    expect(submit).toBeEnabled()
+  })
+
   it('Security panel shows active sessions heading', () => {
     renderSettings('#security')
     expect(screen.getByRole('heading', { name: /active sessions/i })).toBeInTheDocument()
