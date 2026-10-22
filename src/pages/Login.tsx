@@ -14,6 +14,11 @@ import MfaMethodChooser, {
 } from "../components/MfaMethodChooser";
 import ConfirmDialog from "../components/ConfirmDialog";
 import SubmitButton, { SUBMIT_DEMO_MS } from "../components/SubmitButton";
+import {
+  verifyRecoveryCode,
+  remainingCodeCount,
+  generateRecoveryCodes,
+} from "../services/mockAuth";
 
 type LoginState = "credentials" | "mfa-challenge" | "mfa-recovery";
 type MfaFallbackMethod = MfaMethod | "recovery";
@@ -911,11 +916,16 @@ function MfaRecoveryFlowState({
   const [path, setPath] = useState<RecoveryPath | null>(null);
 
   // Recovery-code step state
-  const [codes, setCodes] = useState<string[]>(() => generateRecoveryCodes());
+  // `codes` is populated with a fresh crypto-generated set when the user
+  // reaches the "complete" step after re-enrollment.  It is empty until then.
+  const [codes, setCodes] = useState<string[]>([]);
   const [codeValue, setCodeValue] = useState("");
   const [codeTried, setCodeTried] = useState(false);
   const [codeValid, setCodeValid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [codesRemaining, setCodesRemaining] = useState<number>(
+    remainingCodeCount,
+  );
 
   // Support step state
   const [supportName, setSupportName] = useState("");
@@ -934,14 +944,6 @@ function MfaRecoveryFlowState({
   // Shared helpers
   const goTo = (s: RecoveryStep) => setStep(s);
 
-  const validateRecoveryCode = (value: string, list: string[]): boolean => {
-    const normalized = value
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "");
-    return list.some((c) => c.toUpperCase().replace(/-/g, "") === normalized);
-  };
-
   // When recovery code succeeds, go to success screen then auto-advance
   useEffect(() => {
     if (step !== "recovery-code-success") return;
@@ -949,10 +951,13 @@ function MfaRecoveryFlowState({
     return () => window.clearTimeout(t);
   }, [step]);
 
-  // When re-enroll picks a method, go to complete
+  // When re-enroll picks a method, go to complete — generate fresh codes first
   useEffect(() => {
     if (step !== "reenroll-method" || !chosenMethod) return;
-    const t = window.setTimeout(() => goTo("complete"), 500);
+    const t = window.setTimeout(() => {
+      setCodes(generateRecoveryCodes());
+      goTo("complete");
+    }, 500);
     return () => window.clearTimeout(t);
   }, [step, chosenMethod]);
 
@@ -961,11 +966,12 @@ function MfaRecoveryFlowState({
     setCodeTried(true);
     setIsSubmitting(true);
 
-    const valid = validateRecoveryCode(codeValue, codes);
+    const valid = verifyRecoveryCode(codeValue);
     setTimeout(() => {
       setCodeValid(valid);
       setIsSubmitting(false);
       if (valid) {
+        setCodesRemaining(remainingCodeCount());
         addToast("Recovery code accepted. Proceeding…", "success");
         goTo("recovery-code-success");
       } else {
@@ -1207,6 +1213,19 @@ function MfaRecoveryFlowState({
             >
               Recovery codes were displayed when you first enabled two-factor
               authentication. Each code can be used once.
+            </p>
+            <p
+              style={{
+                margin: 0,
+                color: "var(--muted)",
+                fontSize: "0.85rem",
+              }}
+            >
+              {codesRemaining === 10
+                ? "10 codes remaining."
+                : codesRemaining === 1
+                  ? "1 code remaining."
+                  : `${codesRemaining} codes remaining.`}
             </p>
           </div>
 
@@ -1580,6 +1599,7 @@ function MfaRecoveryFlowState({
                   `${METHOD_DISPLAY[chosenMethod]} enrolled successfully.`,
                   "success",
                 );
+                setCodes(generateRecoveryCodes());
                 goTo("complete");
               }}
             >
@@ -1810,22 +1830,6 @@ const METHOD_DISPLAY: Record<MfaMethod, string> = {
   sms: "SMS text message",
   "security-key": "Security key",
 };
-
-const RECOVERY_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-function generateRecoveryCodes(): string[] {
-  return Array.from({ length: 10 }, () => {
-    const seg = () =>
-      Array.from(
-        { length: 4 },
-        () =>
-          RECOVERY_CODE_CHARS[
-            Math.floor(Math.random() * RECOVERY_CODE_CHARS.length)
-          ],
-      ).join("");
-    return `${seg()}-${seg()}-${seg()}`;
-  });
-}
 
 // ─── Login state router ──────────────────────────────────────────────────────
 
