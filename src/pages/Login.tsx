@@ -1890,22 +1890,25 @@ export default function Login() {
   const forcedState = searchParams.get("state");
 
   const [state, setState] = useState<LoginState>(() => {
-    if (forcedState === "mfa") return "mfa-challenge";
     if (forcedState === "mfa-recover" || forcedState === "mfa-recovery")
       return "mfa-recovery";
     return "credentials";
   });
 
   useEffect(() => {
-    if (forcedState === "mfa") setState("mfa-challenge");
-    else if (forcedState === "mfa-recover" || forcedState === "mfa-recovery")
+    if (forcedState === "mfa-recover" || forcedState === "mfa-recovery")
       setState("mfa-recovery");
   }, [forcedState]);
+
+  const returnToCredentials = () => {
+    setState("credentials");
+    navigate("/login", { replace: true });
+  };
 
   if (state === "mfa-recovery") {
     return (
       <MfaRecoveryFlowState
-        onBack={() => setState("credentials")}
+        onBack={returnToCredentials}
         onSuccess={() => navigate("/dashboard")}
       />
     );
@@ -1914,7 +1917,7 @@ export default function Login() {
   if (state === "mfa-challenge") {
     return (
       <MfaChallengeState
-        onBack={() => setState("credentials")}
+        onBack={returnToCredentials}
         onSuccess={() => navigate("/dashboard")}
       />
     );

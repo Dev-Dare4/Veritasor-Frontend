@@ -2,7 +2,7 @@
  * Focused behavior coverage for the Login route state machine
  * (`src/pages/Login.tsx`).
  *
- * `Login` is a three-state router driven by the `?state=` search parameter:
+ * `Login` is a three-state router with an optional recovery deep link:
  *
  *   credentials → mfa-challenge → mfa-recovery
  *
@@ -11,15 +11,16 @@
  * only then advances to the MFA challenge.
  *
  * Coverage targets:
- *   ✔ Default state, explicit `?state=` values, unknown values, and both
+ *   ✔ Default state, MFA state protection, unknown values, and both
  *     recovery aliases (`mfa-recover` / `mfa-recovery`)
  *   ✔ Password-shape validation gates the demo timer (failure path)
  *   ✔ Successful submit enters the busy state during `SUBMIT_DEMO_MS` and
  *     then advances to the challenge (success path)
- *   ✔ Back navigation from both the challenge and the recovery flow
+ *   ✔ Back navigation from both the challenge and the recovery flow clears
+ *     the query string
  */
 
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,9 +31,17 @@ import { SUBMIT_DEMO_MS } from '../components/SubmitButton'
 function renderLogin(url = '/login') {
   return render(
     <MemoryRouter initialEntries={[url]}>
-      <ToastProvider>{<Login /> as ReactElement}</ToastProvider>
+      <ToastProvider>
+        {<Login /> as ReactElement}
+        <CurrentLocation />
+      </ToastProvider>
     </MemoryRouter>,
   )
+}
+
+function CurrentLocation() {
+  const { pathname, search } = useLocation()
+  return <output data-testid="location">{pathname}{search}</output>
 }
 
 function passwordField() {
@@ -66,11 +75,11 @@ describe('Login route state machine', () => {
       expect(submitButton()).toBeInTheDocument()
     })
 
-    it('renders the MFA challenge when state=mfa is requested', () => {
+    it('falls back to credentials when state=mfa is requested without credentials', () => {
       renderLogin('/login?state=mfa')
 
-      expect(screen.getByRole('heading', { name: /verify your sign-in/i })).toBeInTheDocument()
-      expect(screen.queryByRole('heading', { name: /welcome back/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: /verify your sign-in/i })).not.toBeInTheDocument()
     })
 
     it.each(['mfa-recover', 'mfa-recovery'])(
@@ -240,9 +249,17 @@ describe('Login route state machine', () => {
     it('returns from the MFA challenge to the credentials form', () => {
       renderLogin('/login?state=mfa')
 
+      fireEvent.change(passwordField(), { target: { value: 'correct-horse-1' } })
+      fireEvent.click(submitButton())
+      act(() => {
+        vi.advanceTimersByTime(SUBMIT_DEMO_MS)
+      })
+
+      expect(screen.getByRole('heading', { name: /verify your sign-in/i })).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: /^← back$/i }))
 
       expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
+      expect(screen.getByTestId('location')).toHaveTextContent('/login')
     })
 
     it('returns from the recovery flow to the credentials form', () => {
@@ -251,6 +268,7 @@ describe('Login route state machine', () => {
       fireEvent.click(screen.getByRole('button', { name: /back to sign in/i }))
 
       expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
+      expect(screen.getByTestId('location')).toHaveTextContent('/login')
     })
   })
 })
