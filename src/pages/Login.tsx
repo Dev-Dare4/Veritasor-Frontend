@@ -102,20 +102,42 @@ function getMethodDefinition(
 
 // ─── Credentials state ───────────────────────────────────────────────────────
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function CredentialsState({ onContinue }: { onContinue: () => void }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberDevice, setRememberDevice] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const submitTimerRef = useRef<number | null>(null);
-  const emailId = useId();
-  const passwordId = useId();
-  const errorId = useId();
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [emailBlurred, setEmailBlurred] = useState(false);
+  const [passwordBlurred, setPasswordBlurred] = useState(false);
 
-  const passwordTooShort =
-    password.length > 0 &&
-    (password.length < 12 || !/[^A-Za-z0-9]/.test(password));
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const submitTimerRef = useRef<number | null>(null);
+
+  const emailId = useId();
+  const emailErrorId = useId();
+  const passwordId = useId();
+  const passwordErrorId = useId();
+
+  const trimmedEmail = email.trim();
+  let emailErrorMessage = "";
+  if (!trimmedEmail) {
+    emailErrorMessage = "Email is required.";
+  } else if (!EMAIL_REGEX.test(trimmedEmail)) {
+    emailErrorMessage = "Please enter a valid email address.";
+  }
+
+  let passwordErrorMessage = "";
+  if (!password) {
+    passwordErrorMessage = "Password is required.";
+  }
+
+  const showEmailError = (hasSubmitted || emailBlurred) && Boolean(emailErrorMessage);
+  const showPasswordError = (hasSubmitted || passwordBlurred) && Boolean(passwordErrorMessage);
 
   useEffect(() => {
     return () => {
@@ -127,7 +149,20 @@ function CredentialsState({ onContinue }: { onContinue: () => void }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordTooShort || isSubmitting) return;
+    setHasSubmitted(true);
+
+    if (emailErrorMessage) {
+      emailInputRef.current?.focus();
+      return;
+    }
+
+    if (passwordErrorMessage) {
+      passwordInputRef.current?.focus();
+      return;
+    }
+
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     submitTimerRef.current = window.setTimeout(() => {
       submitTimerRef.current = null;
@@ -154,14 +189,30 @@ function CredentialsState({ onContinue }: { onContinue: () => void }) {
             Work email
           </label>
           <input
+            ref={emailInputRef}
             id={emailId}
-            className="auth-input"
+            className={"auth-input" + (showEmailError ? " auth-input-error" : "")}
             type="email"
             placeholder="team@veritasor.com"
             autoComplete="email"
+            aria-describedby={showEmailError ? emailErrorId : undefined}
+            aria-invalid={showEmailError ? "true" : undefined}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => setEmailBlurred(true)}
           />
+          {showEmailError && (
+            <p
+              id={emailErrorId}
+              className="auth-message auth-message-error"
+              role="alert"
+            >
+              <span aria-hidden="true" className="auth-message-icon">
+                !
+              </span>
+              {emailErrorMessage}
+            </p>
+          )}
         </div>
 
         <div className="auth-input-group">
@@ -174,28 +225,28 @@ function CredentialsState({ onContinue }: { onContinue: () => void }) {
             </Link>
           </div>
           <input
+            ref={passwordInputRef}
             id={passwordId}
-            className={
-              "auth-input" + (passwordTooShort ? " auth-input-error" : "")
-            }
+            className={"auth-input" + (showPasswordError ? " auth-input-error" : "")}
             type="password"
             placeholder="Enter your password"
             autoComplete="current-password"
-            aria-describedby={passwordTooShort ? errorId : undefined}
-            aria-invalid={passwordTooShort ? "true" : undefined}
+            aria-describedby={showPasswordError ? passwordErrorId : undefined}
+            aria-invalid={showPasswordError ? "true" : undefined}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => setPasswordBlurred(true)}
           />
-          {passwordTooShort && (
+          {showPasswordError && (
             <p
-              id={errorId}
+              id={passwordErrorId}
               className="auth-message auth-message-error"
               role="alert"
             >
               <span aria-hidden="true" className="auth-message-icon">
                 !
               </span>
-              Your password must include at least 12 characters and one symbol.
+              {passwordErrorMessage}
             </p>
           )}
         </div>

@@ -43,6 +43,10 @@ function submitButton() {
   return screen.getByRole('button', { name: /^sign in$/i })
 }
 
+function emailField() {
+  return screen.getByLabelText(/work email/i)
+}
+
 describe('Login route state machine', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -90,28 +94,33 @@ describe('Login route state machine', () => {
   })
 
   describe('credentials state', () => {
-    it('reports the password shape error for the prefilled demo password', () => {
+    it('does not show any errors while typing before first submit or blur', () => {
       renderLogin()
 
-      expect(screen.getByRole('alert')).toHaveTextContent(/12 characters and one symbol/i)
-      expect(passwordField()).toHaveAttribute('aria-invalid', 'true')
-      expect(passwordField()).toHaveAttribute('aria-describedby', screen.getByRole('alert').id)
-    })
+      expect(screen.queryAllByRole('alert')).toHaveLength(0)
 
-    it('clears the password error once a valid password is typed', () => {
-      renderLogin()
+      fireEvent.change(emailField(), { target: { value: 'invalid-email' } })
+      fireEvent.change(passwordField(), { target: { value: 'abc' } })
 
-      fireEvent.change(passwordField(), { target: { value: 'correct-horse-1' } })
-
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryAllByRole('alert')).toHaveLength(0)
+      expect(emailField()).not.toHaveAttribute('aria-invalid')
       expect(passwordField()).not.toHaveAttribute('aria-invalid')
     })
 
-    it('does not advance while the password is too short', () => {
+    it('shows two inline errors and does not advance on empty submit', () => {
       renderLogin()
 
-      fireEvent.change(passwordField(), { target: { value: 'short' } })
       fireEvent.click(submitButton())
+
+      const alerts = screen.getAllByRole('alert')
+      expect(alerts).toHaveLength(2)
+      expect(alerts[0]).toHaveTextContent(/email is required/i)
+      expect(alerts[1]).toHaveTextContent(/password is required/i)
+
+      expect(emailField()).toHaveAttribute('aria-invalid', 'true')
+      expect(emailField()).toHaveAttribute('aria-describedby', alerts[0].id)
+      expect(passwordField()).toHaveAttribute('aria-invalid', 'true')
+      expect(passwordField()).toHaveAttribute('aria-describedby', alerts[1].id)
 
       act(() => {
         vi.advanceTimersByTime(SUBMIT_DEMO_MS * 3)
@@ -123,10 +132,59 @@ describe('Login route state machine', () => {
       expect(submitButton()).not.toHaveAttribute('aria-busy')
     })
 
-    it('shows the busy demo state for SUBMIT_DEMO_MS and then opens the MFA challenge', () => {
+    it('moves focus to the first invalid field on failed submit', () => {
       renderLogin()
 
-      fireEvent.change(passwordField(), { target: { value: 'correct-horse-1' } })
+      fireEvent.click(submitButton())
+      expect(emailField()).toHaveFocus()
+
+      fireEvent.change(emailField(), { target: { value: 'user@example.com' } })
+      fireEvent.click(submitButton())
+      expect(passwordField()).toHaveFocus()
+    })
+
+    it('blocks submit with invalid email and accepts a short password at sign-in', () => {
+      renderLogin()
+
+      fireEvent.change(emailField(), { target: { value: 'foo' } })
+      fireEvent.change(passwordField(), { target: { value: 'abc' } })
+      fireEvent.click(submitButton())
+
+      const alerts = screen.getAllByRole('alert')
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0]).toHaveTextContent(/valid email/i)
+      expect(emailField()).toHaveAttribute('aria-invalid', 'true')
+      expect(passwordField()).not.toHaveAttribute('aria-invalid')
+      expect(emailField()).toHaveFocus()
+
+      act(() => {
+        vi.advanceTimersByTime(SUBMIT_DEMO_MS * 3)
+      })
+
+      expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: /verify your sign-in/i })).not.toBeInTheDocument()
+    })
+
+    it('shows inline errors on blur', () => {
+      renderLogin()
+
+      fireEvent.blur(emailField())
+      expect(screen.getByText(/email is required/i)).toBeInTheDocument()
+      expect(emailField()).toHaveAttribute('aria-invalid', 'true')
+
+      fireEvent.change(emailField(), { target: { value: 'invalid' } })
+      expect(screen.getByText(/valid email/i)).toBeInTheDocument()
+
+      fireEvent.blur(passwordField())
+      expect(screen.getByText(/password is required/i)).toBeInTheDocument()
+      expect(passwordField()).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('shows the busy demo state for SUBMIT_DEMO_MS and then opens the MFA challenge on valid credentials', () => {
+      renderLogin()
+
+      fireEvent.change(emailField(), { target: { value: 'user@example.com' } })
+      fireEvent.change(passwordField(), { target: { value: 'abc' } })
       fireEvent.click(submitButton())
 
       const busy = screen.getByRole('button', { name: /signing in/i })
@@ -150,7 +208,8 @@ describe('Login route state machine', () => {
     it('ignores extra submits while the demo timer is in flight', () => {
       renderLogin()
 
-      fireEvent.change(passwordField(), { target: { value: 'correct-horse-1' } })
+      fireEvent.change(emailField(), { target: { value: 'user@example.com' } })
+      fireEvent.change(passwordField(), { target: { value: 'abc' } })
       fireEvent.click(submitButton())
       fireEvent.click(screen.getByRole('button', { name: /signing in/i }))
 
@@ -166,7 +225,8 @@ describe('Login route state machine', () => {
       const clearSpy = vi.spyOn(window, 'clearTimeout')
       const { unmount } = renderLogin()
 
-      fireEvent.change(passwordField(), { target: { value: 'correct-horse-1' } })
+      fireEvent.change(emailField(), { target: { value: 'user@example.com' } })
+      fireEvent.change(passwordField(), { target: { value: 'abc' } })
       fireEvent.click(submitButton())
 
       const callsAfterSubmit = clearSpy.mock.calls.length
