@@ -1,8 +1,6 @@
 node_modules
 dist
 *.local
-.env
-.env.*
 .DS_Store
 mingit/
 branch_structure.json
@@ -12,3 +10,4 @@ playwright-report
 test-results
 *.tsbuildinfo
 .vercel
+config.bat
