@@ -2,7 +2,7 @@ import HelpArticleFeedback from '../components/HelpArticleFeedback'
 
 export default function HelpArticle() {
   return (
-    <main id="main-content" tabIndex={-1} className="help-article-page">
+    <div className="help-article-page">
       <article className="help-article">
         <header className="help-article-header">
           <h1>Getting Started with Veritasor</h1>
@@ -34,6 +34,6 @@ export default function HelpArticle() {
 
         <HelpArticleFeedback articleId="getting-started" />
       </article>
-    </main>
+    </div>
   )
 }

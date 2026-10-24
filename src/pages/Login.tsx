@@ -14,6 +14,11 @@ import MfaMethodChooser, {
 } from "../components/MfaMethodChooser";
 import ConfirmDialog from "../components/ConfirmDialog";
 import SubmitButton, { SUBMIT_DEMO_MS } from "../components/SubmitButton";
+import {
+  verifyRecoveryCode,
+  remainingCodeCount,
+  generateRecoveryCodes,
+} from "../services/mockAuth";
 
 type LoginState = "credentials" | "mfa-challenge" | "mfa-recovery";
 type MfaFallbackMethod = MfaMethod | "recovery";
@@ -97,20 +102,42 @@ function getMethodDefinition(
 
 // ─── Credentials state ───────────────────────────────────────────────────────
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function CredentialsState({ onContinue }: { onContinue: () => void }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberDevice, setRememberDevice] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const submitTimerRef = useRef<number | null>(null);
-  const emailId = useId();
-  const passwordId = useId();
-  const errorId = useId();
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [emailBlurred, setEmailBlurred] = useState(false);
+  const [passwordBlurred, setPasswordBlurred] = useState(false);
 
-  const passwordTooShort =
-    password.length > 0 &&
-    (password.length < 12 || !/[^A-Za-z0-9]/.test(password));
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const submitTimerRef = useRef<number | null>(null);
+
+  const emailId = useId();
+  const emailErrorId = useId();
+  const passwordId = useId();
+  const passwordErrorId = useId();
+
+  const trimmedEmail = email.trim();
+  let emailErrorMessage = "";
+  if (!trimmedEmail) {
+    emailErrorMessage = "Email is required.";
+  } else if (!EMAIL_REGEX.test(trimmedEmail)) {
+    emailErrorMessage = "Please enter a valid email address.";
+  }
+
+  let passwordErrorMessage = "";
+  if (!password) {
+    passwordErrorMessage = "Password is required.";
+  }
+
+  const showEmailError = (hasSubmitted || emailBlurred) && Boolean(emailErrorMessage);
+  const showPasswordError = (hasSubmitted || passwordBlurred) && Boolean(passwordErrorMessage);
 
   useEffect(() => {
     return () => {
@@ -122,7 +149,20 @@ function CredentialsState({ onContinue }: { onContinue: () => void }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordTooShort || isSubmitting) return;
+    setHasSubmitted(true);
+
+    if (emailErrorMessage) {
+      emailInputRef.current?.focus();
+      return;
+    }
+
+    if (passwordErrorMessage) {
+      passwordInputRef.current?.focus();
+      return;
+    }
+
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     submitTimerRef.current = window.setTimeout(() => {
       submitTimerRef.current = null;
@@ -149,14 +189,30 @@ function CredentialsState({ onContinue }: { onContinue: () => void }) {
             Work email
           </label>
           <input
+            ref={emailInputRef}
             id={emailId}
-            className="auth-input"
+            className={"auth-input" + (showEmailError ? " auth-input-error" : "")}
             type="email"
             placeholder="team@veritasor.com"
             autoComplete="email"
+            aria-describedby={showEmailError ? emailErrorId : undefined}
+            aria-invalid={showEmailError ? "true" : undefined}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => setEmailBlurred(true)}
           />
+          {showEmailError && (
+            <p
+              id={emailErrorId}
+              className="auth-message auth-message-error"
+              role="alert"
+            >
+              <span aria-hidden="true" className="auth-message-icon">
+                !
+              </span>
+              {emailErrorMessage}
+            </p>
+          )}
         </div>
 
         <div className="auth-input-group">
@@ -169,28 +225,28 @@ function CredentialsState({ onContinue }: { onContinue: () => void }) {
             </Link>
           </div>
           <input
+            ref={passwordInputRef}
             id={passwordId}
-            className={
-              "auth-input" + (passwordTooShort ? " auth-input-error" : "")
-            }
+            className={"auth-input" + (showPasswordError ? " auth-input-error" : "")}
             type="password"
             placeholder="Enter your password"
             autoComplete="current-password"
-            aria-describedby={passwordTooShort ? errorId : undefined}
-            aria-invalid={passwordTooShort ? "true" : undefined}
+            aria-describedby={showPasswordError ? passwordErrorId : undefined}
+            aria-invalid={showPasswordError ? "true" : undefined}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => setPasswordBlurred(true)}
           />
-          {passwordTooShort && (
+          {showPasswordError && (
             <p
-              id={errorId}
+              id={passwordErrorId}
               className="auth-message auth-message-error"
               role="alert"
             >
               <span aria-hidden="true" className="auth-message-icon">
                 !
               </span>
-              Your password must include at least 12 characters and one symbol.
+              {passwordErrorMessage}
             </p>
           )}
         </div>
@@ -236,18 +292,41 @@ function MfaChallengeState({
   const [showFallbackSelector, setShowFallbackSelector] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
+  const [codeError, setCodeError] = useState<string | null>(null);
 
   const codeId = useId();
   const errorId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const verifyTimerRef = useRef<number | null>(null);
+  const keyTimerRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
 
   const activeMethod = getMethodDefinition(activeMethodId);
   const isKeyMethod = activeMethodId === "security-key";
   const codeLengthExpected = activeMethodId === "recovery" ? 14 : 6;
   const sanitizedCode = code.replace(/\s/g, "");
 
-  const codeValidLength = sanitizedCode.length === codeLengthExpected;
-  const submitDisabled = isSubmitting || isKeyMethod ? false : !codeValidLength;
+  const isRecoveryMethod = activeMethodId === "recovery";
+  const RECOVERY_CODE_PATTERN = /^[A-Z0-9]{4}-?[A-Z0-9]{4}-?[A-Z0-9]{4}$/;
+  const codeValidLength = isRecoveryMethod
+    ? RECOVERY_CODE_PATTERN.test(sanitizedCode.toUpperCase())
+    : /^\d{6}$/.test(sanitizedCode);
+  const submitDisabled = isSubmitting || (isKeyMethod ? false : !codeValidLength);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (verifyTimerRef.current !== null) {
+        window.clearTimeout(verifyTimerRef.current);
+        verifyTimerRef.current = null;
+      }
+      if (keyTimerRef.current !== null) {
+        window.clearTimeout(keyTimerRef.current);
+        keyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Focus the input on mount / method change (non-key methods)
   useEffect(() => {
@@ -279,7 +358,10 @@ function MfaChallengeState({
     if (submitDisabled) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    setCodeError(null);
+    verifyTimerRef.current = window.setTimeout(() => {
+      verifyTimerRef.current = null;
+      if (!isMountedRef.current) return;
       setIsSubmitting(false);
       addToast("Second factor verified. Redirecting…", "success");
       onSuccess();
@@ -296,6 +378,7 @@ function MfaChallengeState({
     setActiveMethodId(id);
     setShowFallbackSelector(false);
     setCode("");
+    setCodeError(null);
   };
 
   const maskEmail = (e: string) => {
@@ -424,7 +507,9 @@ function MfaChallengeState({
               type="button"
               onClick={() => {
                 setIsSubmitting(true);
-                setTimeout(() => {
+                keyTimerRef.current = window.setTimeout(() => {
+                  keyTimerRef.current = null;
+                  if (!isMountedRef.current) return;
                   setIsSubmitting(false);
                   addToast("Security key verified.", "success");
                   onSuccess();
@@ -494,19 +579,35 @@ function MfaChallengeState({
             <input
               ref={inputRef}
               id={codeId}
-              className="auth-input"
+              className={
+                "auth-input" + (codeError ? " auth-input-error" : "")
+              }
               type={activeMethodId === "recovery" ? "text" : "text"}
-              inputMode="numeric"
+              inputMode={isRecoveryMethod ? "text" : "numeric"}
+              autoCapitalize={
+                isRecoveryMethod ? "characters" : undefined
+              }
+              autoCorrect={isRecoveryMethod ? "off" : undefined}
+              spellCheck={isRecoveryMethod ? false : undefined}
               autoComplete="one-time-code"
               placeholder={activeMethod.inputPlaceholder}
               aria-label={activeMethod.inputAriaLabel}
+              aria-invalid={codeError ? "true" : undefined}
               aria-describedby={
-                activeMethodId === "sms" && resendCountdown > 0
-                  ? "mfa-resend-status"
-                  : undefined
+                [
+                  codeError ? errorId : null,
+                  activeMethodId === "sms" && resendCountdown > 0
+                    ? "mfa-resend-status"
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
               }
               value={code}
-              onChange={(e) => setCode(e.target.value)}
+              onChange={(e) => {
+                setCode(e.target.value);
+                if (codeError) setCodeError(null);
+              }}
               style={{
                 fontFamily:
                   activeMethodId === "recovery"
@@ -522,6 +623,19 @@ function MfaChallengeState({
               }
               disabled={isSubmitting}
             />
+
+            {codeError && (
+              <p
+                id={errorId}
+                className="auth-message auth-message-error"
+                role="alert"
+              >
+                <span aria-hidden="true" className="auth-message-icon">
+                  !
+                </span>
+                {codeError}
+              </p>
+            )}
 
             {activeMethodId === "sms" && resendCountdown > 0 && (
               <p
@@ -911,11 +1025,16 @@ function MfaRecoveryFlowState({
   const [path, setPath] = useState<RecoveryPath | null>(null);
 
   // Recovery-code step state
-  const [codes, setCodes] = useState<string[]>(() => generateRecoveryCodes());
+  // `codes` is populated with a fresh crypto-generated set when the user
+  // reaches the "complete" step after re-enrollment.  It is empty until then.
+  const [codes, setCodes] = useState<string[]>([]);
   const [codeValue, setCodeValue] = useState("");
   const [codeTried, setCodeTried] = useState(false);
   const [codeValid, setCodeValid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [codesRemaining, setCodesRemaining] = useState<number>(
+    remainingCodeCount,
+  );
 
   // Support step state
   const [supportName, setSupportName] = useState("");
@@ -934,14 +1053,6 @@ function MfaRecoveryFlowState({
   // Shared helpers
   const goTo = (s: RecoveryStep) => setStep(s);
 
-  const validateRecoveryCode = (value: string, list: string[]): boolean => {
-    const normalized = value
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "");
-    return list.some((c) => c.toUpperCase().replace(/-/g, "") === normalized);
-  };
-
   // When recovery code succeeds, go to success screen then auto-advance
   useEffect(() => {
     if (step !== "recovery-code-success") return;
@@ -949,10 +1060,13 @@ function MfaRecoveryFlowState({
     return () => window.clearTimeout(t);
   }, [step]);
 
-  // When re-enroll picks a method, go to complete
+  // When re-enroll picks a method, go to complete — generate fresh codes first
   useEffect(() => {
     if (step !== "reenroll-method" || !chosenMethod) return;
-    const t = window.setTimeout(() => goTo("complete"), 500);
+    const t = window.setTimeout(() => {
+      setCodes(generateRecoveryCodes());
+      goTo("complete");
+    }, 500);
     return () => window.clearTimeout(t);
   }, [step, chosenMethod]);
 
@@ -961,11 +1075,12 @@ function MfaRecoveryFlowState({
     setCodeTried(true);
     setIsSubmitting(true);
 
-    const valid = validateRecoveryCode(codeValue, codes);
+    const valid = verifyRecoveryCode(codeValue);
     setTimeout(() => {
       setCodeValid(valid);
       setIsSubmitting(false);
       if (valid) {
+        setCodesRemaining(remainingCodeCount());
         addToast("Recovery code accepted. Proceeding…", "success");
         goTo("recovery-code-success");
       } else {
@@ -1207,6 +1322,19 @@ function MfaRecoveryFlowState({
             >
               Recovery codes were displayed when you first enabled two-factor
               authentication. Each code can be used once.
+            </p>
+            <p
+              style={{
+                margin: 0,
+                color: "var(--muted)",
+                fontSize: "0.85rem",
+              }}
+            >
+              {codesRemaining === 10
+                ? "10 codes remaining."
+                : codesRemaining === 1
+                  ? "1 code remaining."
+                  : `${codesRemaining} codes remaining.`}
             </p>
           </div>
 
@@ -1580,6 +1708,7 @@ function MfaRecoveryFlowState({
                   `${METHOD_DISPLAY[chosenMethod]} enrolled successfully.`,
                   "success",
                 );
+                setCodes(generateRecoveryCodes());
                 goTo("complete");
               }}
             >
@@ -1811,22 +1940,6 @@ const METHOD_DISPLAY: Record<MfaMethod, string> = {
   "security-key": "Security key",
 };
 
-const RECOVERY_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-function generateRecoveryCodes(): string[] {
-  return Array.from({ length: 10 }, () => {
-    const seg = () =>
-      Array.from(
-        { length: 4 },
-        () =>
-          RECOVERY_CODE_CHARS[
-            Math.floor(Math.random() * RECOVERY_CODE_CHARS.length)
-          ],
-      ).join("");
-    return `${seg()}-${seg()}-${seg()}`;
-  });
-}
-
 // ─── Login state router ──────────────────────────────────────────────────────
 
 export default function Login() {
@@ -1835,22 +1948,25 @@ export default function Login() {
   const forcedState = searchParams.get("state");
 
   const [state, setState] = useState<LoginState>(() => {
-    if (forcedState === "mfa") return "mfa-challenge";
     if (forcedState === "mfa-recover" || forcedState === "mfa-recovery")
       return "mfa-recovery";
     return "credentials";
   });
 
   useEffect(() => {
-    if (forcedState === "mfa") setState("mfa-challenge");
-    else if (forcedState === "mfa-recover" || forcedState === "mfa-recovery")
+    if (forcedState === "mfa-recover" || forcedState === "mfa-recovery")
       setState("mfa-recovery");
   }, [forcedState]);
+
+  const returnToCredentials = () => {
+    setState("credentials");
+    navigate("/login", { replace: true });
+  };
 
   if (state === "mfa-recovery") {
     return (
       <MfaRecoveryFlowState
-        onBack={() => setState("credentials")}
+        onBack={returnToCredentials}
         onSuccess={() => navigate("/dashboard")}
       />
     );
@@ -1859,7 +1975,7 @@ export default function Login() {
   if (state === "mfa-challenge") {
     return (
       <MfaChallengeState
-        onBack={() => setState("credentials")}
+        onBack={returnToCredentials}
         onSuccess={() => navigate("/dashboard")}
       />
     );

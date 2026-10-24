@@ -1,13 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Attestations from './Attestations'
+import { ToastProvider } from '../components/ToastContext'
+import { AttestationsProvider } from '../state/attestations'
 
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <Attestations />
-    </MemoryRouter>,
+    <AttestationsProvider>
+      <ToastProvider>
+        <MemoryRouter>
+          <Attestations />
+        </MemoryRouter>
+      </ToastProvider>
+    </AttestationsProvider>,
   )
 }
 
@@ -52,6 +58,18 @@ describe('Attestations Page', () => {
     expect(screen.getAllByText(/failure/i).length).toBeGreaterThan(0)
   })
 
+  it('renders date-axis labels and includes missing days in the trend', () => {
+    renderPage()
+    const chart = screen.getByRole('region', { name: 'Attestation activity trend' })
+    const barGroups = chart.querySelectorAll('[id^="attestation-trend-bar-"]')
+    const svgLabels = Array.from(chart.querySelectorAll('svg text'), (label) => label.textContent)
+    const firstDateLabel = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+      .format(new Date(2026, 4, 15))
+
+    expect(barGroups).toHaveLength(14)
+    expect(svgLabels).toContain(firstDateLabel)
+  })
+
   it('exposes tabular data via the "View as table" toggle', () => {
     renderPage()
     const toggle = screen.getByRole('button', { name: /view as table/i })
@@ -67,5 +85,17 @@ describe('Attestations Page', () => {
     expect(focusable.length).toBeGreaterThan(0)
     focusable[0].focus()
     expect(focusable[0]).toHaveFocus()
+  })
+
+  it('does not update the live region when a bar is hovered', () => {
+    renderPage()
+    const chart = screen.getByRole('region', { name: 'Attestation activity trend' })
+    const status = within(chart).getByRole('status')
+    const initialStatus = status.textContent
+    const firstBar = chart.querySelector('#attestation-trend-bar-0')
+
+    expect(firstBar).not.toBeNull()
+    fireEvent.mouseEnter(firstBar!)
+    expect(status).toHaveTextContent(initialStatus!)
   })
 })

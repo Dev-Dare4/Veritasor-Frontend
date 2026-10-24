@@ -1,8 +1,10 @@
 import { useRef, useState, useCallback } from 'react'
 import type { SelfieCapture } from '../../hooks/useOnboardingDraft'
+import { useObjectUrl } from '../../hooks/useObjectUrl'
 
 type Props = {
   data: SelfieCapture
+  file?: File | null
   onBack: () => void
   onNext: (data: SelfieCapture, file: File | null) => void
 }
@@ -12,22 +14,25 @@ const OVAL_HEIGHT_RATIO = 0.58
 const OVAL_TOP_RATIO = 0.2
 
 function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024) return `${bytes} `
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export default function SelfieCaptureStep({ onBack, onNext }: Props) {
+export default function SelfieCaptureStep({ data, file, onBack, onNext }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
-  const [capturedFile, setCapturedFile] = useState<File | null>(null)
+  const [capturedFile, setCapturedFile] = useState<File | null>(file ?? null)
   const [error, setError] = useState<string | null>(null)
   const [lighting, setLighting] = useState<'good' | 'low' | 'bright' | null>(null)
-  const [showUpload, setShowUpload] = useState(false)
+  const [showUpload, setShowUpload] = useState(file ? false : false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const animationRef = useRef<number | null>(null)
+
+  const capturedPreviewUrl = useObjectUrl(capturedFile)
+  const uploadPreviewUrl = useObjectUrl(uploadFile)
 
   const analyzeLighting = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return
@@ -75,7 +80,7 @@ export default function SelfieCaptureStep({ onBack, onNext }: Props) {
   const startCamera = useCallback(async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: {ideal: 720 } },
         audio: false,
       })
       setStream(mediaStream)
@@ -224,7 +229,7 @@ export default function SelfieCaptureStep({ onBack, onNext }: Props) {
       <div className="sc-viewfinder-wrap" role="region" aria-label="Camera viewfinder">
         {!stream && !capturedFile && !uploadFile ? (
           <div className="sc-placeholder">
-            <span className="sc-placeholder-icon" aria-hidden="true">📷</span>
+            <span className="sc-placeholder-icon" aria-hidden="true">🷵</span>
             <p>Starting camera…</p>
           </div>
         ) : null}
@@ -258,7 +263,7 @@ export default function SelfieCaptureStep({ onBack, onNext }: Props) {
             <div className={`sc-lighting ${lighting ? `sc-lighting-${lighting}` : ''}`} aria-live="polite" aria-atomic="true">
               {lighting === 'good' && (
                 <>
-                  <span className="sc-lighting-icon" aria-hidden="true">✦</span>
+                  <span className="sc-lighting-icon" aria-hidden="true">⬻</span>
                   <span>Good lighting</span>
                 </>
               )}
@@ -289,10 +294,10 @@ export default function SelfieCaptureStep({ onBack, onNext }: Props) {
           </div>
         )}
 
-        {capturedFile && (
+        {capturedFile && capturedPreviewUrl && (
           <div className="sc-preview-container">
             <img
-              src={URL.createObjectURL(capturedFile)}
+              src={capturedPreviewUrl}
               alt="Captured selfie preview"
               className="sc-preview-img"
             />
@@ -305,10 +310,10 @@ export default function SelfieCaptureStep({ onBack, onNext }: Props) {
           </div>
         )}
 
-        {uploadFile && (
+        {uploadFile && uploadPreviewUrl && (
           <div className="sc-preview-container">
             <img
-              src={URL.createObjectURL(uploadFile)}
+              src={uploadPreviewUrl}
               alt="Uploaded selfie preview"
               className="sc-preview-img"
             />

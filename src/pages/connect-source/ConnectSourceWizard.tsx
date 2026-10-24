@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import {
   Link,
   Outlet,
@@ -8,6 +8,8 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import WizardProgress from '../../components/WizardProgress'
+import { useToast } from '../../components/ToastContext'
+import { sourcesStore, generateSourceId } from '../../store/sourcesStore'
 
 type ProviderId = 'stripe' | 'shopify' | 'razorpay'
 type OAuthCallbackState = 'success' | 'denied' | 'expired' | 'unknown'
@@ -266,6 +268,7 @@ function useWizardContext() {
 export function ConnectSourceWizard() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { addToast } = useToast()
   const [data, setData] = useState<WizardData>(initialWizardData)
   const currentStepIndex = getStepIndex(location.pathname)
   const providerName = getProviderName(data.provider)
@@ -309,6 +312,140 @@ export function ConnectSourceWizard() {
 
     document.title = `${activeStep.label} | Connect source | Veritasor`
   }, [currentStepIndex])
+
+  const setProvider = useCallback(
+    (provider: ProviderId) =>
+      setData({
+        provider,
+        authorizationStatus: 'idle',
+        oauthCallbackState: 'success',
+        syncWindow: null,
+        optionalScopes: [],
+        currencyMappings: DEFAULT_CURRENCY_ROWS,
+        confirmLeastPrivilege: false,
+        scopeValidationAttempted: false,
+        mappingValidationAttempted: false,
+      }),
+    [],
+  )
+  const startAuthorization = useCallback(
+    () =>
+      setData((currentData) => ({
+        ...currentData,
+        authorizationStatus: 'pending',
+      })),
+    [],
+  )
+  const setAuthorizationDenied = useCallback(() => {
+    setData((currentData) => ({
+      ...currentData,
+      authorizationStatus: 'denied',
+      oauthCallbackState: 'denied',
+    }))
+    navigate('/connect-source/callback?state=denied')
+  }, [navigate])
+  const setOAuthCallbackState = useCallback((state: OAuthCallbackState) => {
+    const authorizationStatus: AuthorizationStatus =
+      state === 'success'
+        ? 'authorized'
+        : state === 'denied'
+          ? 'denied'
+          : state === 'expired'
+            ? 'expired'
+            : 'unknown'
+
+    setData((currentData) => {
+      if (
+        currentData.oauthCallbackState === state &&
+        currentData.authorizationStatus === authorizationStatus
+      ) {
+        return currentData
+      }
+
+      return {
+        ...currentData,
+        oauthCallbackState: state,
+        authorizationStatus,
+      }
+    })
+  }, [])
+  const setSyncWindow = useCallback(
+    (windowId: SyncWindowId) =>
+      setData((currentData) => ({
+        ...currentData,
+        syncWindow: windowId,
+        scopeValidationAttempted: false,
+        confirmLeastPrivilege: false,
+      })),
+    [],
+  )
+  const toggleOptionalScope = useCallback(
+    (scopeId: string) =>
+      setData((currentData) => ({
+        ...currentData,
+        optionalScopes: currentData.optionalScopes.includes(scopeId)
+          ? currentData.optionalScopes.filter((currentScope) => currentScope !== scopeId)
+          : [...currentData.optionalScopes, scopeId],
+        confirmLeastPrivilege: false,
+      })),
+    [],
+  )
+  const setCurrencyMapping = useCallback(
+    (currency: string, field: 'category' | 'ledgerAccount', value: string) =>
+      setData((currentData) => ({
+        ...currentData,
+        mappingValidationAttempted: false,
+        currencyMappings: currentData.currencyMappings.map((row) =>
+          row.currency === currency
+            ? { ...row, [field]: value === '' ? null : value }
+            : row,
+        ),
+      })),
+    [],
+  )
+  const setConfirmLeastPrivilege = useCallback(
+    (checked: boolean) =>
+      setData((currentData) => ({
+        ...currentData,
+        confirmLeastPrivilege: checked,
+      })),
+    [],
+  )
+  const runTestConnection = useCallback(() => {}, [])
+  const resetTestConnection = useCallback(() => {}, [])
+
+  const context = useMemo<WizardContext>(
+    () => ({
+      data,
+      currentStepIndex,
+      providerName,
+      setProvider,
+      startAuthorization,
+      setAuthorizationDenied,
+      setOAuthCallbackState,
+      setSyncWindow,
+      toggleOptionalScope,
+      setCurrencyMapping,
+      setConfirmLeastPrivilege,
+      runTestConnection,
+      resetTestConnection,
+    }),
+    [
+      data,
+      currentStepIndex,
+      providerName,
+      setProvider,
+      startAuthorization,
+      setAuthorizationDenied,
+      setOAuthCallbackState,
+      setSyncWindow,
+      toggleOptionalScope,
+      setCurrencyMapping,
+      setConfirmLeastPrivilege,
+      runTestConnection,
+      resetTestConnection,
+    ],
+  )
 
   if (currentStepIndex === -1) {
     return null
@@ -356,87 +493,22 @@ export function ConnectSourceWizard() {
     }
 
     if (isLastStep) {
-      navigate('/')
+      // Build a new Source from wizard data and add it to the shared store
+      const providerName = getProviderName(data.provider)
+      const newSource = {
+        id: generateSourceId(),
+        provider: providerName,
+        accountLabel: `${providerName.toLowerCase()}-connected`,
+        status: 'healthy' as const,
+        lastSync: new Date().toISOString(),
+      }
+      sourcesStore.add(newSource)
+      addToast(`${providerName} connected successfully`, 'success')
+      navigate('/sources')
       return
     }
 
     goToStep(currentStepIndex + 1)
-  }
-
-  const context: WizardContext = {
-    data,
-    currentStepIndex,
-    providerName,
-    setProvider: (provider) =>
-      setData({
-        provider,
-        authorizationStatus: 'idle',
-        oauthCallbackState: 'success',
-        syncWindow: null,
-        optionalScopes: [],
-        currencyMappings: DEFAULT_CURRENCY_ROWS,
-        confirmLeastPrivilege: false,
-        scopeValidationAttempted: false,
-        mappingValidationAttempted: false,
-      }),
-    startAuthorization: () =>
-      setData((currentData) => ({
-        ...currentData,
-        authorizationStatus: 'pending',
-      })),
-    setAuthorizationDenied: () => {
-      setData((currentData) => ({
-        ...currentData,
-        authorizationStatus: 'denied',
-        oauthCallbackState: 'denied',
-      }))
-      navigate('/connect-source/callback?state=denied')
-    },
-    setOAuthCallbackState: (state) =>
-      setData((currentData) => ({
-        ...currentData,
-        oauthCallbackState: state,
-        authorizationStatus:
-          state === 'success'
-            ? 'authorized'
-            : state === 'denied'
-              ? 'denied'
-              : state === 'expired'
-                ? 'expired'
-                : 'unknown',
-      })),
-    setSyncWindow: (windowId) =>
-      setData((currentData) => ({
-        ...currentData,
-        syncWindow: windowId,
-        scopeValidationAttempted: false,
-        confirmLeastPrivilege: false,
-      })),
-    toggleOptionalScope: (scopeId) =>
-      setData((currentData) => ({
-        ...currentData,
-        optionalScopes: currentData.optionalScopes.includes(scopeId)
-          ? currentData.optionalScopes.filter((currentScope) => currentScope !== scopeId)
-          : [...currentData.optionalScopes, scopeId],
-        confirmLeastPrivilege: false,
-      })),
-    setCurrencyMapping: (currency, field, value) =>
-      setData((currentData) => ({
-        ...currentData,
-        mappingValidationAttempted: false,
-        currencyMappings: currentData.currencyMappings.map((row) =>
-          row.currency === currency
-            ? { ...row, [field]: value === '' ? null : value }
-            : row,
-        ),
-      })),
-    setConfirmLeastPrivilege: (checked) =>
-      setData((currentData) => ({
-        ...currentData,
-        confirmLeastPrivilege: checked,
-      })),
-    runTestConnection: () => {},
-    resetTestConnection: () => {},
   }
 
   return (
@@ -696,9 +768,10 @@ export function OAuthCallbackLandingStep() {
   const { data, providerName, setOAuthCallbackState } = useWizardContext()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const stateParam =
+    searchParams.get('state') || searchParams.get('status') || searchParams.get('error')
 
   useEffect(() => {
-    const stateParam = searchParams.get('state') || searchParams.get('status') || searchParams.get('error')
     if (stateParam) {
       const lower = stateParam.toLowerCase()
       if (lower.includes('denied') || lower.includes('access_denied')) {
@@ -711,7 +784,7 @@ export function OAuthCallbackLandingStep() {
         setOAuthCallbackState('success')
       }
     }
-  }, [searchParams, setOAuthCallbackState])
+  }, [stateParam, setOAuthCallbackState])
 
   const currentState: OAuthCallbackState = data.oauthCallbackState || 'success'
 

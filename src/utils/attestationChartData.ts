@@ -15,6 +15,60 @@ export interface AttestationInput {
   createdAt?: string;
 }
 
+export interface AttestationChartGeometry {
+  barWidth: number;
+  positions: number[];
+}
+
+export function getAttestationChartGeometry(
+  bucketCount: number,
+  chartWidth = 640,
+  padding = 12,
+): AttestationChartGeometry {
+  const count = Math.max(0, Math.floor(bucketCount));
+  const bandWidth = Math.max(0, chartWidth - padding * 2) / Math.max(count, 1);
+  const barWidth = count === 0 ? 0 : Math.min(48, bandWidth * 0.7);
+
+  return {
+    barWidth,
+    positions: Array.from({ length: count }, (_, index) =>
+      padding + index * bandWidth + (bandWidth - barWidth) / 2,
+    ),
+  };
+}
+
+export function getAttestationChartLabelIndices(labels: string[], centers: number[]): number[] {
+  const candidates = labels
+    .map((label, index) => ({ index, center: centers[index], width: label.length * 6 }))
+    .filter(({ center }) => center !== undefined);
+  if (candidates.length <= 1) return candidates.map(({ index }) => index);
+
+  const selected = [candidates[0]];
+  for (const candidate of candidates.slice(1, -1)) {
+    const previous = selected[selected.length - 1];
+    if (candidate.center - candidate.width / 2 >= previous.center + previous.width / 2 + 6) {
+      selected.push(candidate);
+    }
+  }
+
+  const last = candidates[candidates.length - 1];
+  while (
+    selected.length > 1 &&
+    last.center - last.width / 2 <
+      selected[selected.length - 1].center + selected[selected.length - 1].width / 2 + 6
+  ) {
+    selected.pop();
+  }
+  if (
+    last.center - last.width / 2 >=
+    selected[selected.length - 1].center + selected[selected.length - 1].width / 2 + 6
+  ) {
+    selected.push(last);
+  }
+
+  return selected.map(({ index }) => index);
+}
+
 function normalizeDate(input: AttestationInput): string {
   const raw = input.date ?? input.createdAt ?? '';
   if (!raw) return 'Unknown';

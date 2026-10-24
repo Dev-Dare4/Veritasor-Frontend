@@ -3968,6 +3968,28 @@ input {
   justify-content: space-between;
 }
 
+.ob-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.ob-start-over {
+  font-family: inherit;
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0.25rem 0.6rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.ob-start-over:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
 .ob-brand {
   font-size: 1.05rem;
   font-weight: 700;

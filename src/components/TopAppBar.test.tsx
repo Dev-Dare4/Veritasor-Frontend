@@ -1,15 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { IntlProvider } from 'react-intl'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import TopAppBar, { WorkspaceMetadata } from './TopAppBar'
+import { LocaleProvider } from '../i18n/provider'
 import messages from '../i18n/messages/en.json'
 
-function renderWithProvider(ui: React.ReactElement) {
-  return render(
-    <IntlProvider locale="en" messages={messages}>
-      {ui}
-    </IntlProvider>
-  )
+function LocationDisplay() {
+  const location = useLocation()
+  return <div data-testid="location-pathname">{location.pathname}</div>
+}
+
+function renderWithProvider(ui: React.ReactElement, { initialEntries = ['/'] }: { initialEntries?: string[] } = {}) {
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <MemoryRouter initialEntries={initialEntries}>
+        <LocaleProvider>
+          {children}
+          <LocationDisplay />
+        </LocaleProvider>
+      </MemoryRouter>
+    ),
+  })
 }
 
 const mockWorkspaces: WorkspaceMetadata[] = [
@@ -408,6 +420,118 @@ describe('TopAppBar - Account Switcher', () => {
       
       expect(accountTrigger).toHaveAttribute('aria-expanded', 'false')
     })
+
+    it('navigates to /settings on clicking Settings, closes menu, and returns focus to trigger', () => {
+      renderWithProvider(
+        <TopAppBar
+          workspaces={mockWorkspaces}
+          initialWorkspace="workspace-1"
+        />
+      )
+
+      const accountTrigger = screen.getByRole('button', { name: /account menu/i })
+      fireEvent.click(accountTrigger)
+
+      fireEvent.click(screen.getByRole('menuitem', { name: /^settings$/i }))
+
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/settings')
+      expect(screen.queryByRole('menu', { name: /account options/i })).not.toBeInTheDocument()
+      expect(accountTrigger).toHaveFocus()
+    })
+
+    it('navigates to /settings on pressing Enter or Space on Settings and returns focus to trigger', () => {
+      renderWithProvider(
+        <TopAppBar
+          workspaces={mockWorkspaces}
+          initialWorkspace="workspace-1"
+        />
+      )
+
+      const accountTrigger = screen.getByRole('button', { name: /account menu/i })
+      fireEvent.click(accountTrigger)
+
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /^settings$/i }), { key: 'Enter' })
+
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/settings')
+      expect(screen.queryByRole('menu', { name: /account options/i })).not.toBeInTheDocument()
+      expect(accountTrigger).toHaveFocus()
+
+      fireEvent.click(accountTrigger)
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /^settings$/i }), { key: ' ' })
+      expect(screen.queryByRole('menu', { name: /account options/i })).not.toBeInTheDocument()
+      expect(accountTrigger).toHaveFocus()
+    })
+
+    it('navigates to /api-keys on clicking API keys, closes menu, and returns focus to trigger', () => {
+      renderWithProvider(
+        <TopAppBar
+          workspaces={mockWorkspaces}
+          initialWorkspace="workspace-1"
+        />
+      )
+
+      const accountTrigger = screen.getByRole('button', { name: /account menu/i })
+      fireEvent.click(accountTrigger)
+
+      fireEvent.click(screen.getByRole('menuitem', { name: /api keys/i }))
+
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/api-keys')
+      expect(screen.queryByRole('menu', { name: /account options/i })).not.toBeInTheDocument()
+      expect(accountTrigger).toHaveFocus()
+    })
+
+    it('navigates to /api-keys on pressing Enter or Space on API keys and returns focus to trigger', () => {
+      renderWithProvider(
+        <TopAppBar
+          workspaces={mockWorkspaces}
+          initialWorkspace="workspace-1"
+        />
+      )
+
+      const accountTrigger = screen.getByRole('button', { name: /account menu/i })
+      fireEvent.click(accountTrigger)
+
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /api keys/i }), { key: 'Enter' })
+
+      expect(screen.getByTestId('location-pathname')).toHaveTextContent('/api-keys')
+      expect(screen.queryByRole('menu', { name: /account options/i })).not.toBeInTheDocument()
+      expect(accountTrigger).toHaveFocus()
+
+      fireEvent.click(accountTrigger)
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: /api keys/i }), { key: ' ' })
+      expect(screen.queryByRole('menu', { name: /account options/i })).not.toBeInTheDocument()
+      expect(accountTrigger).toHaveFocus()
+    })
+
+    it('renders locale picker outside role="menu" in a labelled section and changes locale without closing the account menu', () => {
+      renderWithProvider(
+        <TopAppBar
+          workspaces={mockWorkspaces}
+          initialWorkspace="workspace-1"
+        />
+      )
+
+      const accountTrigger = screen.getByRole('button', { name: /account menu/i })
+      fireEvent.click(accountTrigger)
+
+      const menu = screen.getByRole('menu', { name: /account options/i })
+      expect(within(menu).queryByRole('button', { name: /select language/i })).not.toBeInTheDocument()
+
+      const localeSection = screen.getByRole('region', { name: /language/i })
+      const localeTrigger = within(localeSection).getByRole('button', { name: /select language/i })
+      fireEvent.click(localeTrigger)
+
+      // Opening the locale picker must not close the account menu
+      expect(screen.getByRole('menu', { name: /account options/i })).toBeInTheDocument()
+
+      const spanishOption = screen.getByRole('option', { name: /español/i })
+      fireEvent.click(spanishOption)
+
+      // Selecting a locale updates the active locale and keeps the account menu open
+      expect(screen.getByRole('menu', { name: /account options/i })).toBeInTheDocument()
+      expect(localeTrigger).toHaveTextContent('Español')
+      expect(document.documentElement.lang).toBe('es')
+    })
   })
 
   describe('Accessibility', () => {
@@ -596,7 +720,7 @@ describe('TopAppBar - Account Switcher', () => {
   })
 
   describe('TopAppBar - Environment Toggle', () => {
-    it('defaults to testnet and toggles to mainnet on click', () => {
+    it('defaults to testnet and opens a confirmation when switching to mainnet', () => {
       renderWithProvider(
         <TopAppBar
           workspaces={mockWorkspaces}
@@ -608,10 +732,12 @@ describe('TopAppBar - Account Switcher', () => {
       expect(envBadge).toHaveTextContent('testnet')
 
       fireEvent.click(envBadge)
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
       expect(screen.getByRole('button', { name: /environment: mainnet/i })).toHaveTextContent('mainnet')
     })
 
-    it('toggles back to testnet on a second click', () => {
+    it('keeps testnet when the confirmation is cancelled', () => {
       renderWithProvider(
         <TopAppBar
           workspaces={mockWorkspaces}
@@ -621,12 +747,12 @@ describe('TopAppBar - Account Switcher', () => {
 
       const envBadge = screen.getByRole('button', { name: /environment: testnet/i })
       fireEvent.click(envBadge)
-      fireEvent.click(screen.getByRole('button', { name: /environment: mainnet/i }))
+      fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
 
       expect(screen.getByRole('button', { name: /environment: testnet/i })).toHaveTextContent('testnet')
     })
 
-    it('respects the initialEnvironment prop', () => {
+    it('switches back to testnet without confirmation', () => {
       renderWithProvider(
         <TopAppBar
           workspaces={mockWorkspaces}
@@ -635,7 +761,9 @@ describe('TopAppBar - Account Switcher', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /environment: mainnet/i })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /environment: mainnet/i }))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /environment: testnet/i })).toBeInTheDocument()
     })
   })
 

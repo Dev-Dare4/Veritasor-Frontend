@@ -3,13 +3,9 @@ import { Link } from 'react-router-dom'
 import AttestationConfirmModal from '../components/AttestationConfirmModal'
 import UsageMeter from '../components/UsageMeter'
 import { useViewportObserver } from '../hooks/useViewportObserver'
-
-const DEMO_DETAILS = {
-  source: 'Stripe (live)',
-  period: 'May 2026',
-  recordCount: 1247,
-  merkleRoot: '0x4a2f8c3d1e6b9f0a2d5c8e1b4f7a0d3c6e9b2f5a8d1c4e7b0a3f6c9d2e5b8a1c4',
-}
+import { useToast } from '../components/ToastContext'
+import { useAttestations } from '../state/attestations'
+import { DEFAULT_TRIGGER_DETAILS } from '../state/attestationMocks'
 
 const METRICS = [
   { label: 'Total Revenue', value: '$84,320', sub: 'YTD 2026' },
@@ -39,6 +35,8 @@ export default function Dashboard() {
   const [modalOpen, setModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [attestError, setAttestError] = useState<string | null>(null)
+  const { trigger } = useAttestations()
+  const { addToast } = useToast()
 
   // Entrance animation observers — one per metric card
   const { ref: revenueRef, isVisible: revenueVisible } = useViewportObserver<HTMLDivElement>()
@@ -50,9 +48,15 @@ export default function Dashboard() {
   async function handleConfirm() {
     setIsLoading(true)
     setAttestError(null)
-    await Promise.resolve()
-    setIsLoading(false)
-    setModalOpen(false)
+    try {
+      await trigger(DEFAULT_TRIGGER_DETAILS)
+      addToast('Attestation submitted successfully.', 'success')
+      setModalOpen(false)
+    } catch (err) {
+      setAttestError(err instanceof Error ? err.message : 'Failed to process attestation')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   function handleClose() {
@@ -147,7 +151,7 @@ export default function Dashboard() {
         onConfirm={handleConfirm}
         isLoading={isLoading}
         error={attestError}
-        details={DEMO_DETAILS}
+        details={DEFAULT_TRIGGER_DETAILS}
       />
     </div>
   )

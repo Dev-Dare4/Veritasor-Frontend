@@ -1,5 +1,5 @@
-import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { createContext, useContext, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useBlocker, useLocation, useNavigate } from 'react-router-dom'
 import LocalePickerField from '../components/LocalePicker/LocalePickerField'
 import AuditLogTimeline, { type AuditLogEntry } from '../components/audit-log/AuditLogTimeline'
 import type { AuditLogEntryDetail } from '../components/audit-log/AuditLogDetailDrawer'
@@ -10,10 +10,12 @@ import A11yCoverageMatrix from '../components/a11y/A11yCoverageMatrix'
 import SettingsIntegrationsPanel from './SettingsIntegrationsPanel'
 import MfaMethodChooser from '../components/MfaMethodChooser'
 import type { MfaMethod } from '../components/MfaMethodChooser'
-import WebhookRetryPanel, { type WebhookDelivery } from '../components/WebhookRetryPanel'
+import WebhookRetryPanel from '../components/WebhookRetryPanel'
+import type { WebhookDelivery } from '../components/api-keys/apiKeyTypes'
 import DensityToggle from '../components/DensityToggle'
 import DirtyStateBanner from '../components/DirtyStateBanner'
 import { useDirtyForm, type SaveStatus } from '../hooks/useDirtyForm'
+import { validatePassword } from '../utils/passwordPolicy'
 
 // Tab definitions ordered by frequency of use
 const TABS = [
@@ -164,7 +166,8 @@ function ProfilePanel() {
     });
     return () => registry.unregister("profile");
   }, [
-    registry,
+    registry.register,
+    registry.unregister,
     form.isDirty,
     form.saveStatus,
     form.lastSavedAt,
@@ -443,7 +446,8 @@ function NotificationsPanel() {
     });
     return () => registry.unregister("notifications");
   }, [
-    registry,
+    registry.register,
+    registry.unregister,
     form.isDirty,
     form.saveStatus,
     form.lastSavedAt,
@@ -1824,7 +1828,6 @@ function PlanCard({
         style={{
           padding: "0.65rem 1rem",
           borderRadius: 8,
-          border: "none",
           background: isSelected
             ? "var(--accent)"
             : isCurrent
@@ -2573,6 +2576,10 @@ function SecurityPanel() {
   const registry = useDirtyRegistry();
   const [mfaMethod, setMfaMethod] = useState<MfaMethod | null>(null);
   const [sessions, setSessions] = useState(MOCK_SESSIONS);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmTouched, setConfirmTouched] = useState(false);
+  const passwordPolicyId = useId();
+  const confirmPasswordId = useId();
 
   const pwForm = useDirtyForm({
     storageKey: "veritasor_settings_security_draft",
@@ -2588,6 +2595,14 @@ function SecurityPanel() {
       void v;
     },
   });
+  const passwordPolicy = validatePassword(pwForm.values.newPassword);
+  const passwordsMatch = pwForm.values.newPassword === confirmPassword;
+  const showConfirmError = confirmTouched && !passwordsMatch;
+  const canSubmitPassword =
+    pwForm.isDirty &&
+    passwordPolicy.valid &&
+    passwordsMatch &&
+    pwForm.saveStatus !== "saving";
 
   useEffect(() => {
     localStorage.removeItem("veritasor_settings_security_draft");
@@ -2603,7 +2618,8 @@ function SecurityPanel() {
     });
     return () => registry.unregister("security");
   }, [
-    registry,
+    registry.register,
+    registry.unregister,
     pwForm.isDirty,
     pwForm.saveStatus,
     pwForm.lastSavedAt,
@@ -2617,6 +2633,8 @@ function SecurityPanel() {
 
   async function handlePwSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setConfirmTouched(true);
+    if (!passwordPolicy.valid || !passwordsMatch) return;
     await pwForm.save();
   }
 
@@ -2669,6 +2687,7 @@ function SecurityPanel() {
               autoComplete="new-password"
               value={pwForm.values.newPassword}
               onChange={(e) => pwForm.setField("newPassword", e.target.value)}
+              aria-describedby={passwordPolicyId}
               style={{
                 padding: "0.6rem 0.8rem",
                 borderRadius: 8,
@@ -2679,9 +2698,56 @@ function SecurityPanel() {
               }}
             />
           </div>
+          <ul
+            id={passwordPolicyId}
+            style={{ margin: 0, paddingLeft: "1.25rem", color: "var(--muted)", fontSize: "0.85rem" }}
+            aria-label="Password requirements"
+          >
+            {passwordPolicy.failures.length > 0 ? (
+              passwordPolicy.failures.map((failure) => (
+                <li key={failure}>{failure}</li>
+              ))
+            ) : (
+              <li>Password meets all requirements.</li>
+            )}
+          </ul>
+          <div style={{ display: "grid", gap: "0.4rem" }}>
+            <label htmlFor="confirm-new-password" style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+              Confirm new password
+            </label>
+            <input
+              id="confirm-new-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setConfirmTouched(true);
+              }}
+              aria-describedby={confirmPasswordId}
+              aria-invalid={showConfirmError ? "true" : undefined}
+              style={{
+                padding: "0.6rem 0.8rem",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                background: "var(--surface-strong)",
+                color: "var(--text)",
+                fontSize: "0.95rem",
+              }}
+            />
+            {showConfirmError ? (
+              <span id={confirmPasswordId} role="alert" style={{ color: "var(--danger)", fontSize: "0.85rem" }}>
+                Passwords do not match.
+              </span>
+            ) : (
+              <span id={confirmPasswordId} style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
+                Confirm your new password.
+              </span>
+            )}
+          </div>
           <button
             type="submit"
-            disabled={!pwForm.isDirty || pwForm.saveStatus === "saving"}
+            disabled={!canSubmitPassword}
             aria-busy={pwForm.saveStatus === "saving"}
             style={{
               alignSelf: "start",
@@ -2691,9 +2757,9 @@ function SecurityPanel() {
               background: "var(--accent)",
               color: "#04111f",
               fontWeight: 700,
-              cursor: !pwForm.isDirty || pwForm.saveStatus === "saving" ? "default" : "pointer",
+              cursor: canSubmitPassword ? "pointer" : "default",
               fontSize: "0.95rem",
-              opacity: !pwForm.isDirty || pwForm.saveStatus === "saving" ? 0.6 : 1,
+              opacity: canSubmitPassword ? 1 : 0.6,
               minHeight: "2.75rem",
             }}
           >
@@ -5356,41 +5422,58 @@ function leaveActionToText(action: LeaveAction): string {
 export default function Settings() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [entries, setEntries] = useState<Map<TabId, DirtyTabEntry>>(() => new Map());
+  const register = useCallback((tab: TabId, entry: DirtyTabEntry) => {
+    setEntries((current) => new Map(current).set(tab, entry));
+  }, []);
+  const unregister = useCallback((tab: TabId) => {
+    setEntries((current) => {
+      if (!current.has(tab)) return current;
+      const next = new Map(current);
+      next.delete(tab);
+      return next;
+    });
+  }, []);
+  const registry = useMemo<DirtyRegistryCtx>(
+    () => ({ entries, register, unregister }),
+    [entries, register, unregister],
+  );
+  const pageState = usePageDirtyState(registry);
+  const blocker = useBlocker(pageState.anyDirty);
   const [activeTab, setActiveTab] = useState<TabId>(() =>
     getTabFromHash(location.hash),
   );
-  const [pendingLeave, setPendingLeave] = useState<{ kind: string; target?: string } | null>(null);
-  const blocker = { state: 'unblocked' as const, reset: () => {} };
+  const [pendingLeave, setPendingLeave] = useState<LeaveAction | null>(null);
+  const [leaveSaveError, setLeaveSaveError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const sheetRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const srAnnounceRef = useRef<HTMLDivElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
-  const registryRef = useRef<DirtyRegistryCtx>({
-    entries: new Map(),
-    register: () => {},
-    unregister: () => {},
-  });
-  const registry = registryRef.current;
-  const pageState = useMemo(() => ({
-    anyDirty: false,
-    dirtyTabs: [] as TabId[],
-    aggregateStatus: 'idle' as SaveStatus,
-    lastSavedAt: null as Date | null,
-    saveAll: async () => {},
-    discardAll: () => {},
-  }), []);
+  const cancelLeave = useCallback(() => {
+    setPendingLeave(null);
+    if (blocker.state === "blocked") blocker.reset();
+    setLeaveSaveError(null);
+  }, [blocker]);
 
   useEffect(() => {
     if (blocker.state === "blocked") {
-      setPendingLeave({ kind: "external" });
+      const nextLocation = blocker.location;
+      const target = nextLocation.pathname === location.pathname
+        ? getTabFromHash(nextLocation.hash)
+        : null;
+      setPendingLeave(
+        target && target !== activeTab
+          ? { kind: "tab", target }
+          : { kind: "external" },
+      );
       if (srAnnounceRef.current) {
         srAnnounceRef.current.textContent =
           "Warning: you have unsaved changes. A dialog is open to confirm leaving the page.";
       }
     }
-  }, [blocker.state]);
+  }, [blocker, location.pathname, activeTab]);
 
   useEffect(() => {
     if (pendingLeave !== null) {
@@ -5408,38 +5491,40 @@ export default function Settings() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
-        setPendingLeave(null);
-        blocker.reset();
+        cancelLeave();
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [pendingLeave, blocker]);
-
-  const cancelLeave = useCallback(() => {
-    setPendingLeave(null);
-    blocker.reset();
-  }, [blocker]);
+  }, [pendingLeave, cancelLeave]);
 
   async function saveAllAndLeave(action: LeaveAction) {
+    setLeaveSaveError(null);
     try {
       await pageState.saveAll();
-    } catch {
-      // proceed regardless
+    } catch (error) {
+      setLeaveSaveError(
+        error instanceof Error ? error.message : "Unable to save your changes.",
+      );
+      return;
     }
     setPendingLeave(null);
-    blocker.proceed();
-    if (action.kind === "tab") {
+    if (blocker.state === "blocked") {
+      blocker.proceed();
+    } else if (action.kind === "tab") {
       setActiveTab(action.target);
       navigate(`/settings#${action.target}`, { replace: true });
     }
+    setLeaveSaveError(null);
   }
 
   function discardAndLeave(action: LeaveAction) {
     pageState.discardAll();
     setPendingLeave(null);
-    blocker.proceed();
-    if (action.kind === "tab") {
+    setLeaveSaveError(null);
+    if (blocker.state === "blocked") {
+      blocker.proceed();
+    } else if (action.kind === "tab") {
       setActiveTab(action.target);
       navigate(`/settings#${action.target}`, { replace: true });
     }
@@ -5831,6 +5916,11 @@ export default function Settings() {
                 ? "will be saved as a local draft and may be lost if you clear browser storage."
                 : "will remain as a local draft."}
             </p>
+            {leaveSaveError && (
+              <p role="alert" style={{ color: "var(--danger)", margin: "0 0 1rem" }}>
+                {leaveSaveError}
+              </p>
+            )}
             {dirtyTabLabels.length > 0 && (
               <ul
                 id="leave-warning-tabs"

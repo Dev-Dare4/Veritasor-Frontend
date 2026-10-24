@@ -5,6 +5,8 @@ type Props = {
   onBack: () => void
   onSubmit: () => void
   submitting: boolean
+  submitError?: string | null
+  onRetry?: () => void
 }
 
 type ReviewRow = { label: string; value: string }
@@ -13,7 +15,7 @@ function rows(entries: [string, string][]): ReviewRow[] {
   return entries.filter(([, v]) => v).map(([label, value]) => ({ label, value }))
 }
 
-export default function ReviewSubmitStep({ draft, onBack, onSubmit, submitting }: Props) {
+export default function ReviewSubmitStep({ draft, onBack, onSubmit, submitting, submitError, onRetry }: Props) {
   const { business, owner, selfie, documents, bank } = draft
 
   const businessRows = rows([
@@ -54,6 +56,31 @@ export default function ReviewSubmitStep({ draft, onBack, onSubmit, submitting }
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.95rem', lineHeight: 1.6 }}>
         Review your information before submitting. Once submitted, your application will be set to <strong style={{ color: 'var(--text)' }}>pending review</strong> and our compliance team will be in touch within 2 business days.
       </p>
+
+      {submitError && (
+        <div
+          className="wizard-inline-alert"
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            marginTop: '1rem',
+          }}
+        >
+          <span>{submitError}</span>
+          <button
+            type="button"
+            className="ob-btn ob-btn-secondary"
+            onClick={onRetry ?? onSubmit}
+            disabled={submitting}
+            style={{ minHeight: '2.25rem', padding: '0.375rem 1rem', fontSize: '0.875rem' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="ob-review-sections">
         <ReviewSection title="Business details" rows={businessRows} />

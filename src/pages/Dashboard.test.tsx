@@ -2,9 +2,17 @@ import { describe, it, expect } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Dashboard from './Dashboard'
+import { ToastProvider } from '../components/ToastContext'
+import { AttestationsProvider } from '../state/attestations'
 
 function renderPage() {
-  return render(<MemoryRouter><Dashboard /></MemoryRouter>)
+  return render(
+    <AttestationsProvider>
+      <ToastProvider>
+        <MemoryRouter><Dashboard /></MemoryRouter>
+      </ToastProvider>
+    </AttestationsProvider>,
+  )
 }
 
 describe('Dashboard Page', () => {

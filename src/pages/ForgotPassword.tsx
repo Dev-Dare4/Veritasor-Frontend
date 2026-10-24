@@ -2,6 +2,7 @@ import React, { useState, useId, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import AuthShell from "../components/AuthShell";
 import { useToast } from "../components/ToastContext";
+import { validatePassword, scorePassword } from "../utils/passwordPolicy";
 
 // ---------------------------------------------------------------------------
 // Password strength helpers (shared with NewPasswordState)
@@ -9,23 +10,14 @@ import { useToast } from "../components/ToastContext";
 
 function computeStrength(password: string): number {
   if (!password) return 0;
-  if (password.length < 8) return 1;
-  const hasUpper = /[A-Z]/.test(password);
-  const hasLower = /[a-z]/.test(password);
-  const hasDigit = /[0-9]/.test(password);
-  const hasSym = /[^A-Za-z0-9]/.test(password);
-  const mixed = hasUpper && hasLower && hasDigit;
-  if (password.length >= 12 && mixed && hasSym) return 4;
-  if (password.length >= 12 && mixed) return 3;
-  if (password.length >= 8 && (hasUpper || hasLower) && hasDigit) return 2;
-  return 1;
+  return Math.max(1, Math.ceil((scorePassword(password) / 5) * 4));
 }
 
 const STRENGTH_COPY: Record<number, string> = {
   0: "Enter a password to see its strength",
-  1: "Too short — use at least 8 characters",
-  2: "Fair — try adding uppercase and numbers",
-  3: "Good — add a symbol for maximum strength",
+  1: "Password requirements not met",
+  2: "Some password requirements met",
+  3: "Most password requirements met",
   4: "Strong enough for a production workspace",
 };
 
@@ -194,8 +186,10 @@ function NewPasswordState({ token }: { token: string | null }) {
   const confirmPasswordId = useId();
   const strengthId = useId();
   const matchId = useId();
+  const passwordPolicyId = useId();
 
   const strength = computeStrength(newPassword);
+  const passwordPolicy = validatePassword(newPassword);
   const passwordsMatch = newPassword === confirmPassword;
   const showMatchError =
     confirmTouched && confirmPassword.length > 0 && !passwordsMatch;
@@ -251,9 +245,9 @@ function NewPasswordState({ token }: { token: string | null }) {
     e.preventDefault();
     setConfirmTouched(true);
 
-    if (strength < 2) {
+    if (!passwordPolicy.valid) {
       addToast(
-        "Your password is too weak. Use at least 8 characters with mixed case and digits.",
+        "Your password does not meet the requirements shown below.",
         "error",
       );
       return;
@@ -294,7 +288,7 @@ function NewPasswordState({ token }: { token: string | null }) {
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              aria-describedby={`${strengthId}`}
+              aria-describedby={`${strengthId} ${passwordPolicyId}`}
             />
             <button
               type="button"
@@ -327,6 +321,20 @@ function NewPasswordState({ token }: { token: string | null }) {
           ))}
           <p className="auth-strength-copy">{STRENGTH_COPY[strength]}</p>
         </div>
+
+        <ul
+          id={passwordPolicyId}
+          className="auth-message auth-message-help"
+          aria-label="Password requirements"
+        >
+          {passwordPolicy.failures.length > 0 ? (
+            passwordPolicy.failures.map((failure) => (
+              <li key={failure}>{failure}</li>
+            ))
+          ) : (
+            <li>Password meets all requirements.</li>
+          )}
+        </ul>
 
         {/* Confirm password */}
         <div className="auth-input-group">

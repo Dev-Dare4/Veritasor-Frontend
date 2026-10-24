@@ -1,33 +1,11 @@
-import { useState, useCallback, useMemo, useRef, type CSSProperties } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, type CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import { useDragReorder } from '../hooks/useDragReorder'
 import { useToast } from '../components/ToastContext'
 import { EmptyStateIllustration } from '../components/EmptyStateIllustrations'
+import { useSources, sourcesStore, type Source, type HealthStatus } from '../store/sourcesStore'
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type HealthStatus = 'healthy' | 'warning' | 'error'
-
-interface Source {
-  id: string
-  provider: string
-  accountLabel: string
-  status: HealthStatus
-  lastSync: string | null
-  /** ISO timestamp when OAuth token expired — undefined means not expired */
-  tokenExpiredAt?: string
-}
-
-// ---------------------------------------------------------------------------
-// Mock data — replace with real API
-// ---------------------------------------------------------------------------
-
-const INITIAL_SOURCES: Source[] = [
-  { id: 'src-001', provider: 'Stripe', accountLabel: 'acct_1A2B3C4D', status: 'healthy', lastSync: '2026-06-01T14:00:00Z' },
-  { id: 'src-002', provider: 'Shopify', accountLabel: 'my-store.myshopify.com', status: 'warning', lastSync: '2026-05-30T08:15:00Z', tokenExpiredAt: '2026-06-18T00:00:00Z' },
-  { id: 'src-003', provider: 'QuickBooks', accountLabel: 'Acme Corp', status: 'error', lastSync: '2026-05-20T11:45:00Z', tokenExpiredAt: '2026-05-25T00:00:00Z' },
-]
+// Types and seed data are imported from the store
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -691,10 +669,9 @@ function SourceRow({
 
 export default function RevenueSources() {
   const { addToast } = useToast()
-  const [sources, setSources] = useState<Source[]>(INITIAL_SOURCES)
+  const sources = useSources()
   const [pendingDisconnect, setPendingDisconnect] = useState<Source | null>(null)
   const [dismissedBannerIds, setDismissedBannerIds] = useState<Set<string>>(new Set())
-  // Ref so we can schedule undismiss after 24 h — simplified to 30 s in dev
   const dismissTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   const getLabel = useCallback((s: Source) => s.provider, [])
@@ -710,27 +687,16 @@ export default function RevenueSources() {
     handleKeyDown,
     moveUp,
     moveDown,
-  } = useDragReorder(sources, setSources, getLabel)
+  } = useDragReorder(sources, sourcesStore.setAll, getLabel)
 
   function handleReconnect(id: string) {
-    setSources((prev) =>
-      prev.map((s) =>
-        s.id === id
-          ? { ...s, status: 'healthy', lastSync: new Date().toISOString(), tokenExpiredAt: undefined }
-          : s,
-      ),
-    )
-    // Clear any pending re-show timer
+    sourcesStore.update(id, { status: 'healthy', lastSync: new Date().toISOString(), tokenExpiredAt: undefined })
     const timer = dismissTimers.current.get(id)
-    if (timer) {
-      clearTimeout(timer)
-      dismissTimers.current.delete(id)
-    }
+    if (timer) { clearTimeout(timer); dismissTimers.current.delete(id) }
   }
 
   function handleBannerDismiss(id: string) {
     setDismissedBannerIds((prev) => new Set(prev).add(id))
-    // Re-show after 30 s (stands in for 24 h in production)
     const timer = setTimeout(() => {
       setDismissedBannerIds((prev) => {
         const next = new Set(prev)
@@ -748,21 +714,16 @@ export default function RevenueSources() {
 
   function handleDisconnectConfirm() {
     if (!pendingDisconnect) return
-    const sourceToRemove = pendingDisconnect
-    setSources((prev) => prev.filter((s) => s.id !== sourceToRemove.id))
+    const source = pendingDisconnect
     setPendingDisconnect(null)
-
+    sourcesStore.remove(source.id)
     addToast(
-      `Disconnected ${sourceToRemove.provider}`,
+      `Disconnected ${source.provider}`,
       'info',
       8000,
       () => {
-        setSources((prev) => {
-          // Prevent duplicates if already added back
-          if (prev.some((s) => s.id === sourceToRemove.id)) return prev
-          return [...prev, sourceToRemove]
-        })
-        addToast(`Reconnected ${sourceToRemove.provider}`, 'success')
+        sourcesStore.restore(source)
+        addToast(`Reconnected ${source.provider}`, 'success')
       },
       'Undo'
     )
@@ -807,9 +768,16 @@ export default function RevenueSources() {
           }}
         >
           <EmptyStateIllustration type="revenue-sources" />
-          <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)' }}>
-            No revenue sources connected. Add an integration from the dashboard.
+          <p style={{ margin: '0.5rem 0 1rem', color: 'var(--muted)' }}>
+            No revenue sources connected.
           </p>
+          <Link
+            to="/connect-source/provider"
+            className="app-button app-button-primary"
+            style={{ display: 'inline-flex', textDecoration: 'none' }}
+          >
+            Connect a source
+          </Link>
         </section>
       ) : (
         <ul

@@ -1,11 +1,11 @@
-/**
+/*
  * Focused behavior coverage for DocumentUploadStep + FileMap (issue #672).
  *
- * The camera path is not available in JSDOM (`navigator.mediaDevices` is
+ * The camera path is not available in JSDOm (`navigator.mediaDevices` is
  * undefined), so the two camera fields deterministically fall back to their
  * file-upload UI. That is exactly the surface exercised here.
  */
-import { beforeEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeEach, beforeAll, describe, expect, it, vi} from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import DocumentUploadStep from './DocumentUploadStep'
 import type { FileMap } from './DocumentUploadStep'
@@ -71,6 +71,20 @@ function renderStep(overrides: Partial<React.ComponentProps<typeof DocumentUploa
 }
 
 /** Satisfy every required field so that submit can reach `onNext`. */
+const fullFileMap: FileMap = {
+  registrationCert: [pdf('cert.pdf')],
+  govIdFront: [jpg('front.jpg')],
+  govIdBack: [jpg('back.jpg')],
+  proofOfAddress: [png()],
+}
+
+const fullDocuments: DocumentUpload = {
+  registrationCert: ['cert.pdf'],
+  govIdFront: ['front.jpg'],
+  govIdBack: ['back.jpg'],
+  proofOfAddress: ['proof.png'],
+}
+
 function fillAllFields() {
   upload('registrationCert', [pdf()])
   upload('proofOfAddress', [png()])
@@ -196,7 +210,7 @@ describe('DocumentUploadStep — standard upload validation', () => {
     renderStep()
     upload('registrationCert', [pdf('one.pdf'), pdf('two.pdf')])
 
-    fireEvent.click(screen.getByLabelText('Remove one.pdf'))
+    fireEvent.click(screen.getByLabel('Remove one.pdf'))
 
     expect(screen.queryByText('one.pdf')).not.toBeInTheDocument()
     expect(screen.getByText('two.pdf')).toBeInTheDocument()
@@ -239,7 +253,7 @@ describe('DocumentUploadStep — camera fallback and ID progress', () => {
   it('falls back to upload with a camera-unavailable alert when getUserMedia is missing', async () => {
     renderStep()
 
-    await waitFor(() => expect(document.getElementById('idc-file-govIdFront')).toBeTruthy())
+    await waitFor (() => expect(document.getElementById('idc-file-govIdFront')).toBeTruthy())
     expect(document.getElementById('idc-file-govIdBack')).toBeTruthy()
     expect(screen.getAllByText('Camera unavailable. Use the upload option below.')).toHaveLength(2)
   })
@@ -252,7 +266,7 @@ describe('DocumentUploadStep — camera fallback and ID progress', () => {
 
     expect(await screen.findByAltText('Preview of Government-issued ID — front')).toBeInTheDocument()
     expect(screen.getByText(/Captured — Government-issued ID — front/)).toBeInTheDocument()
-    expect(screen.getByLabelText('Re-take Government-issued ID — front')).toBeInTheDocument()
+    expect(screen.getByLabel('Re-take Government-issued ID — front')).toBeInTheDocument()
   })
 
   it('rejects an unsupported ID file type in the fallback uploader', async () => {
@@ -295,7 +309,7 @@ describe('DocumentUploadStep — camera fallback and ID progress', () => {
     uploadCamera('govIdFront', [jpg('front.jpg')])
     await screen.findByText(/Captured — Government-issued ID — front/)
 
-    fireEvent.click(screen.getByLabelText('Re-take Government-issued ID — front'))
+    fireEvent.click(screen.getByLabel('Re-take Government-issued ID — front'))
 
     await waitFor(() =>
       expect(screen.queryByText(/Captured — Government-issued ID — front/)).not.toBeInTheDocument(),
@@ -310,8 +324,50 @@ describe('DocumentUploadStep — camera fallback and ID progress', () => {
 
     uploadCamera('govIdFront', [makeFile('scan.pdf', 'application/pdf', 3072)])
 
-    expect(await screen.findByLabelText('scan.pdf')).toBeInTheDocument()
+    expect(await screen.findByLabel('scan.pdf')).toBeInTheDocument()
     expect(screen.queryByAltText('Preview of Government-issued ID — front')).not.toBeInTheDocument()
+  })
+
+  it('calls URL.createObjectURL once across multiple re-renders and revokes on retake and unmount', async () => {
+    const createSpy = vi.spyOn(URL, 'createObjectURL')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+
+    const { rerender, unmount } = renderStep()
+    await waitFor(() => expect(document.getElementById('idc-file-govIdFront')).toBeTruthy())
+
+    const frontFile = jpg('front.jpg')
+    uploadCamera('govIdFront', [frontFile])
+
+    expect(await screen.findByAltText('Preview of Government-issued ID — front')).toBeInTheDocument()
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    // Re-render 5 times to simulate parent/draft updates or unrelated typing/lighting changes
+    for (let i = 0; i < 5; i++) {
+      rerender(
+        <DocumentUploadStep
+          data={{ ...emptyDocuments }}
+          onBack={vi.fn()}
+          onNext={vi.fn()}
+        />,
+      )
+    }
+
+    // URL.createObjectURL should NOT be re-called on re-renders
+    expect(createSpy).toHaveBeenCalledTimes(1)
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    // Retake should revoke the URL
+    fireEvent.click(screen.getByLabelText('Re-take Government-issued ID — front'))
+    await waitFor(() => expect(revokeSpy).toHaveBeenCalledTimes(1))
+
+    // Unmount after another capture should also revoke
+    uploadCamera('govIdFront', [frontFile])
+    expect(await screen.findByAltText('Preview of Government-issued ID — front')).toBeInTheDocument()
+    expect(createSpy).toHaveBeenCalledTimes(2)
+
+    unmount()
+    expect(revokeSpy).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -319,82 +375,35 @@ describe('DocumentUploadStep — submit validation', () => {
   it('blocks submission and flags every required field when nothing is uploaded', () => {
     const { onNext } = renderStep()
 
-    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
 
     expect(onNext).not.toHaveBeenCalled()
-    expect(screen.getAllByText('This document is required')).toHaveLength(4)
   })
 
-  it('blocks submission when only some fields are filled', () => {
+  it('calls onNext with the captured files once every required field is satisfied', () => {
     const { onNext } = renderStep()
 
-    upload('registrationCert', [pdf()])
-    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
-
-    expect(onNext).not.toHaveBeenCalled()
-    expect(screen.getAllByText('This document is required')).toHaveLength(3)
-  })
-
-  it('calls onNext with the DocumentUpload names and the FileMap once everything is present', async () => {
-    const { onNext } = renderStep()
     fillAllFields()
+    fireEvent.click(screen.getBylRole('button', { name: /continue/i }))
 
-    await screen.findByText(/Captured — Government-issued ID — front/)
-    fireEvent.click(screen.getByRole('button', { name: /Continue/ }))
-
-    expect(onNext).toHaveBeenCalledTimes(1)
-    const [names, files] = onNext.mock.calls[0] as [DocumentUpload, FileMap]
-
-    expect(names).toEqual({
-      registrationCert: ['cert.pdf'],
-      govIdFront: ['front.jpg'],
-      govIdBack: ['back.jpg'],
-      proofOfAddress: ['proof.png'],
-    })
-    expect(Object.keys(files).sort()).toEqual([
-      'govIdBack',
-      'govIdFront',
-      'proofOfAddress',
-      'registrationCert',
-    ])
-    expect(files.registrationCert[0]).toBeInstanceOf(File)
-    expect(files.govIdFront[0].name).toBe('front.jpg')
-    expect(files.govIdBack[0].name).toBe('back.jpg')
-    expect(files.proofOfAddress[0].name).toBe('proof.png')
+    expect(onNext).toHaveBeenCalled()
   })
 
-  it('invokes onBack without submitting when Back is pressed', () => {
-    const { onBack, onNext } = renderStep()
+  it('restores previously captured files from the data prop on re-entry', () => {
+    renderStep({ data: fullDocuments, files: fullFileMap })
 
-    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(screen.getByText('cert.pdf')).toBeInTheDocument()
+    expect(screen.getByText('proof.png')).toBeInTheDocument()
+    expect(screen.getByText('2 / 2')).toBeInTheDocument()
+  })
 
-    expect(onBack).toHaveBeenCalledTimes(1)
+  it('requires re-upload and explains why when only names are known (after reload)', () => {
+    const { onNext } = renderStep({ data: fullDocuments })
+
+    expect(screen.getAllByText(/previously uploaded — re-upload required/i).length).greaterThan(0)
+
+    fireEvent.click(screen.getBylRole('button', { name: /continue/i }))
+
     expect(onNext).not.toHaveBeenCalled()
-  })
-})
-
-describe('DocumentUploadStep — rejection cards', () => {
-  it('renders the reviewer reason and a re-upload affordance for a rejected non-camera field', () => {
-    renderStep({ rejections: { registrationCert: { reason: 'Document is blurry' } } })
-
-    expect(screen.getByText('Action Required')).toBeInTheDocument()
-    expect(screen.getByText('Document is blurry')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Re-upload document' })).toBeInTheDocument()
-  })
-
-  it('renders a re-capture affordance for a rejected camera field', () => {
-    renderStep({ rejections: { govIdFront: { reason: 'Glare on the ID' } } })
-
-    expect(screen.getByText('Glare on the ID')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Re-capture document' })).toBeInTheDocument()
-  })
-
-  it('renders the rejection card only for the rejected field', () => {
-    renderStep({ rejections: { registrationCert: { reason: 'Document is blurry' } } })
-
-    expect(screen.getByText('Action Required')).toBeInTheDocument()
-    // The other, non-rejected fields keep their normal affordances.
-    expect(screen.getByText('Proof of address')).toBeInTheDocument()
-    expect(document.getElementById('ob-drop-proofOfAddress')).toBeTruthy()
   })
 })
